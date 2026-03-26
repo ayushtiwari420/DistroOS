@@ -1,0 +1,243 @@
+import { validationResult } from 'express-validator'
+import User                  from '../models/User.model.js'
+import {
+  generateAccessToken,
+  generateRefreshToken,
+  verifyRefreshToken,
+  setRefreshCookie,
+  clearRefreshCookie,
+} from '../utils/token.utils.js'
+
+// ── Helper: send validation errors ──
+const sendValidationErrors = (req, res) => {
+  const errors = validationResult(req)
+  if (!errors.isEmpty()) {
+    return res.status(422).json({ success: false, errors: errors.array() })
+  }
+  return null
+}
+
+// ─────────────────────────────────────────────────────────────
+// POST /api/auth/register
+// ─────────────────────────────────────────────────────────────
+export const register = async (req, res, next) => {
+  console.log("TYPE OF NEXT:", typeof next);
+  try {
+    const err = sendValidationErrors(req, res)
+    if (err) return
+
+    const { name, email, password, role, businessName, city, phone } = req.body
+
+    // Block admin self-registration
+    if (role === 'admin') {
+      return res.status(403).json({ success: false, message: 'Admin accounts cannot be self-registered.' })
+    }
+
+    // Check duplicate email
+    const existing = await User.findOne({ email })
+    if (existing) {
+      return res.status(409).json({ success: false, message: 'An account with this email already exists.' })
+    }
+
+    // Create user
+    const user = await User.create({
+      name,
+      email,
+      password,
+      role,
+      businessName,
+      city,
+      phone,
+      // Wholesalers start as pending until admin approves
+      status: role === 'wholesaler' ? 'pending' : 'active',
+    })
+
+    // Tokens
+    const accessToken  = generateAccessToken(user)
+    const refreshToken = generateRefreshToken(user)
+
+    // Save refresh token to DB
+    await User.findByIdAndUpdate(
+      user._id,
+      { $set: { refreshTokens: [refreshToken] } },
+      { returnDocument: 'after' }
+    )
+
+    setRefreshCookie(res, refreshToken)
+
+    return res.status(201).json({
+      success: true,
+      message: 'Account created successfully.',
+      accessToken,
+      user,
+    })
+  } catch (err) {
+    console.error("REGISTER ERROR STACK:");
+    console.error(err.stack);
+    return res.status(500).json({
+      success: false,
+      message: err.message,
+    });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// POST /api/auth/login
+// ─────────────────────────────────────────────────────────────
+export const login = async (req, res, next) => {
+  try {
+    const err = sendValidationErrors(req, res)
+    if (err) return
+
+    const { email, password, role } = req.body
+
+    // Find user + include password
+    const user = await User.findOne({ email }).select('+password +refreshTokens')
+    if (!user) {
+      return res.status(401).json({ success: false, message: 'Invalid email or password.' })
+    }
+
+    // Check password
+    const isMatch = await user.comparePassword(password)
+    if (!isMatch) {
+      return res.status(401).json({ success: false, message: 'Invalid email or password.' })
+    }
+
+    // Check role matches
+    if (user.role !== role) {
+      return res.status(403).json({ success: false, message: `This account is not registered as ${role}.` })
+    }
+
+    // Check account status
+    if (user.status === 'suspended') {
+      return res.status(403).json({ success: false, message: 'Your account has been suspended. Contact support.' })
+    }
+
+    if (user.status === 'pending') {
+      return res.status(403).json({ success: false, message: 'Your account is pending approval. You will be notified once approved.' })
+    }
+
+    // Generate tokens
+    const accessToken  = generateAccessToken(user)
+    const refreshToken = generateRefreshToken(user)
+
+    // Rotate refresh tokens — keep max 5 sessions
+    await User.findByIdAndUpdate(
+      user._id,
+      {
+        $set: { lastLogin: new Date() },
+        $push: {
+          refreshTokens: {
+            $each: [refreshToken],
+            $slice: -5
+          }
+        }
+      },
+      { returnDocument: 'after' }
+    )
+
+    setRefreshCookie(res, refreshToken)
+
+    return res.status(200).json({
+      success: true,
+      message: 'Logged in successfully.',
+      accessToken,
+      user,
+    })
+  } catch (err) {
+    next(err)
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// POST /api/auth/refresh
+// ────────────────────���────────────────────────────────────────
+export const refresh = async (req, res, next) => {
+  try {
+    const token = req.cookies.refreshToken
+    if (!token) {
+      return res.status(401).json({ success: false, message: 'No refresh token.' })
+    }
+
+    // Verify token
+    let decoded
+    try {
+      decoded = verifyRefreshToken(token)
+    } catch {
+      clearRefreshCookie(res)
+      return res.status(401).json({ success: false, message: 'Invalid or expired refresh token.' })
+    }
+
+    // Find user and check token exists in DB
+    const user = await User.findById(decoded.id).select('+refreshTokens')
+    if (!user || !user.refreshTokens.includes(token)) {
+      clearRefreshCookie(res)
+      return res.status(401).json({ success: false, message: 'Refresh token reuse detected. Please login again.' })
+    }
+
+    // Rotate tokens
+    const newAccessToken  = generateAccessToken(user)
+    const newRefreshToken = generateRefreshToken(user)
+
+    // FIXED: Split into two operations to avoid array conflict
+    // Remove old token first
+    await User.findByIdAndUpdate(
+      user._id,
+      { $pull: { refreshTokens: token } },
+      { returnDocument: 'after' }
+    )
+    
+    // Then add new token
+    await User.findByIdAndUpdate(
+      user._id,
+      { $push: { refreshTokens: newRefreshToken } },
+      { returnDocument: 'after' }
+    )
+
+    setRefreshCookie(res, newRefreshToken)
+
+    return res.status(200).json({
+      success: true,
+      accessToken: newAccessToken,
+    })
+  } catch (err) {
+    next(err)
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// POST /api/auth/logout
+// ─────────────────────────────────────────────────────────────
+export const logout = async (req, res, next) => {
+  try {
+    const token = req.cookies.refreshToken
+    if (token) {
+      // Remove this token from DB
+      const decoded = verifyRefreshToken(token)
+      await User.findByIdAndUpdate(decoded.id, {
+        $pull: { refreshTokens: token },
+      }, { returnDocument: 'after' })
+    }
+    clearRefreshCookie(res)
+    return res.status(200).json({ success: true, message: 'Logged out successfully.' })
+  } catch {
+    clearRefreshCookie(res)
+    return res.status(200).json({ success: true, message: 'Logged out.' })
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// GET /api/auth/me
+// Protected — requires valid access token
+// ─────────────────────────────────────────────────────────────
+export const getMe = async (req, res, next) => {
+  try {
+    const user = await User.findById(req.user.id)
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found.' })
+    }
+    return res.status(200).json({ success: true, user })
+  } catch (err) {
+    next(err)
+  }
+}
