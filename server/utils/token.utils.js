@@ -3,7 +3,7 @@ import jwt from 'jsonwebtoken'
 // ── Generate access token (short-lived) ──
 export const generateAccessToken = (user) => {
   return jwt.sign(
-    { id: user._id, role: user.role },
+    { id: user._id, role: user.role, wholesaler: user.wholesaler },
     process.env.JWT_ACCESS_SECRET,
     { expiresIn: process.env.JWT_ACCESS_EXPIRES || '15m' }
   )
@@ -12,7 +12,7 @@ export const generateAccessToken = (user) => {
 // ── Generate refresh token (long-lived) ──
 export const generateRefreshToken = (user) => {
   return jwt.sign(
-    { id: user._id },
+    { id: user._id, wholesaler: user.wholesaler },
     process.env.JWT_REFRESH_SECRET,
     { expiresIn: process.env.JWT_REFRESH_EXPIRES || '7d' }
   )

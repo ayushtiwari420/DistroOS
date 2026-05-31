@@ -26,7 +26,7 @@ export const protect = async (req, res, next) => {
     }
 
     // Attach user to request
-    req.user = { id: decoded.id, role: decoded.role }
+    req.user = { id: decoded.id, role: decoded.role , wholesaler: decoded.wholesaler }
     next()
   } catch (err) {
     next(err)

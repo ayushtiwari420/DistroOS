@@ -17,8 +17,7 @@ export const createOrder = async (req, res, next) => {
 
     // Determine retailer and wholesaler
     let retailerId     = requesterId
-    let wholesalerIdFinal = wholesalerId
-
+    let wholesalerIdFinal = role === 'retailer' ? req.user.wholesaler : wholesalerId
     if (role === 'salesman') {
       // Salesman places order on behalf of a retailer
       retailerId        = req.body.retailerId

@@ -89,7 +89,7 @@ export const login = async (req, res, next) => {
     const err = sendValidationErrors(req, res)
     if (err) return
 
-    const { email, password, role } = req.body
+    const { email, password } = req.body
 
     // Find user + include password
     const user = await User.findOne({ email }).select('+password +refreshTokens')
@@ -101,11 +101,6 @@ export const login = async (req, res, next) => {
     const isMatch = await user.comparePassword(password)
     if (!isMatch) {
       return res.status(401).json({ success: false, message: 'Invalid email or password.' })
-    }
-
-    // Check role matches
-    if (user.role !== role) {
-      return res.status(403).json({ success: false, message: `This account is not registered as ${role}.` })
     }
 
     // Check account status

@@ -31,12 +31,9 @@ export const getProducts = async (req, res, next) => {
 
     let filter = { isActive: true }
 
-    if (role === 'wholesaler') {
-      filter.wholesaler = id
-    } else if (wholesalerId) {
-      filter.wholesaler = wholesalerId
-    }
-
+    if (role === 'wholesaler') filter.wholesaler = id
+    if (role === 'retailer')   filter.wholesaler = req.user.wholesaler 
+    if (role === 'salesman')   filter.wholesaler = req.user.wholesaler 
     if (category) filter.category = category
     if (search)   filter.name     = { $regex: search, $options: 'i' }
     if (lowStock === 'true') filter.$expr = { $lte: ['$stock', '$lowStockAt'] }

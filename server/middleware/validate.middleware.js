@@ -47,8 +47,5 @@ export const validateLogin = [
 
   body('password')
     .notEmpty().withMessage('Password is required.'),
-
-  body('role')
-    .notEmpty().withMessage('Role is required.')
-    .isIn(['admin', 'wholesaler', 'salesman', 'retailer']).withMessage('Invalid role selected.'),
+    
 ]
