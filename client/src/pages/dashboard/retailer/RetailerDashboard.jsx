@@ -8,112 +8,80 @@ import { getAccessToken } from "../../../context/AuthContext";
 
 const BASE = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
 
-// ── Mock Data ────────────────────────────────────────────────────────────────
+const fetchRetailerOrders = async (limit = 20) => {
+  const token = getAccessToken();
+  const params = new URLSearchParams({ limit: String(limit) });
+  const res = await fetch(`${BASE}/orders?${params.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` },
+    credentials: "include",
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.message || "Could not load orders.");
+  return data.orders || [];
+};
 
-const products = [
-  {
-    id: 1,
-    name: "Basmati Rice 25kg",
-    category: "Grains",
-    price: 1850,
-    stock: "In Stock",
-    unit: "bag",
-  },
-  {
-    id: 2,
-    name: "Refined Oil 5L",
-    category: "Oil",
-    price: 680,
-    stock: "In Stock",
-    unit: "tin",
-  },
-  {
-    id: 3,
-    name: "Toor Dal 10kg",
-    category: "Pulses",
-    price: 960,
-    stock: "Low Stock",
-    unit: "bag",
-  },
-  {
-    id: 4,
-    name: "Sugar 50kg",
-    category: "Sugar",
-    price: 2100,
-    stock: "In Stock",
-    unit: "bag",
-  },
-  {
-    id: 5,
-    name: "Wheat Flour 10kg",
-    category: "Grains",
-    price: 420,
-    stock: "In Stock",
-    unit: "bag",
-  },
-  {
-    id: 6,
-    name: "Sunflower Oil 1L",
-    category: "Oil",
-    price: 148,
-    stock: "In Stock",
-    unit: "bottle",
-  },
-  {
-    id: 7,
-    name: "Chana Dal 5kg",
-    category: "Pulses",
-    price: 490,
-    stock: "Low Stock",
-    unit: "bag",
-  },
-  {
-    id: 8,
-    name: "Salt 1kg",
-    category: "Spices",
-    price: 22,
-    stock: "In Stock",
-    unit: "pack",
-  },
-];
+const formatOrderDate = (value) => {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
 
-const orderHistory = [
-  {
-    id: "#1048",
-    date: "Today, 9:15 AM",
-    items: 3,
-    amount: "₹4,800",
-    status: "Approved",
-  },
-  {
-    id: "#1039",
-    date: "3 days ago",
-    items: 7,
-    amount: "₹11,200",
-    status: "Dispatched",
-  },
-  {
-    id: "#1031",
-    date: "1 week ago",
-    items: 5,
-    amount: "₹7,600",
-    status: "Dispatched",
-  },
-  {
-    id: "#1024",
-    date: "2 weeks ago",
-    items: 2,
-    amount: "₹2,900",
-    status: "Dispatched",
-  },
-  {
-    id: "#1018",
-    date: "3 weeks ago",
-    items: 9,
-    amount: "₹14,100",
-    status: "Dispatched",
-  },
-];
+  return date.toLocaleDateString("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+};
+
+const formatAmount = (value) =>
+  `₹${Number(value || 0).toLocaleString("en-IN")}`;
+
+const formatCompactAmount = (value) => {
+  const amount = Number(value || 0);
+  if (amount >= 100000) return `₹${(amount / 100000).toFixed(1)}L`;
+  if (amount >= 1000) return `₹${(amount / 1000).toFixed(0)}K`;
+  return formatAmount(amount);
+};
+
+const formatItemCount = (items = []) => {
+  const count = Array.isArray(items) ? items.length : Number(items || 0);
+  return `${count} item${count === 1 ? "" : "s"}`;
+};
+
+function useRetailerOrders(limit = 20) {
+  const [orders, setOrders] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [apiError, setApiError] = useState("");
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  useEffect(() => {
+    let ignore = false;
+
+    const loadOrders = async () => {
+      setLoading(true);
+      setApiError("");
+      try {
+        const nextOrders = await fetchRetailerOrders(limit);
+        if (!ignore) setOrders(nextOrders);
+      } catch (e) {
+        if (!ignore) setApiError(e.message);
+      } finally {
+        if (!ignore) setLoading(false);
+      }
+    };
+
+    loadOrders();
+    return () => {
+      ignore = true;
+    };
+  }, [limit, refreshKey]);
+
+  return {
+    orders,
+    loading,
+    apiError,
+    refreshOrders: () => setRefreshKey((key) => key + 1),
+  };
+}
 
 // ── Retailer Sidebar ─────────────────────────────────────────────────────────
 const navItems = [
@@ -385,7 +353,7 @@ function RetailerSidebar({ active, setActive, collapsed, setCollapsed }) {
 }
 
 // ── Place Order Panel ─────────────────────────────────────────────────────────
-function PlaceOrder() {
+function PlaceOrder({ onOrderPlaced }) {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [apiError, setApiError] = useState("");
@@ -427,6 +395,7 @@ function PlaceOrder() {
     load();
   }, []);
 
+  const productId = (product) => product?._id || product?.id;
   const addToCart = (id) => setCart((c) => ({ ...c, [id]: (c[id] || 0) + 1 }));
   const removeFromCart = (id) =>
     setCart((c) => {
@@ -436,22 +405,26 @@ function PlaceOrder() {
       return updated;
     });
 
-  const cartItems = Object.entries(cart).map(([id, qty]) => ({
-    ...products.find((p) => p._id === id),
-    qty,
-  }));
+  const cartItems = Object.entries(cart)
+    .map(([id, qty]) => ({
+      ...products.find((p) => productId(p) === id),
+      qty,
+    }))
+    .filter((item) => productId(item));
   const cartTotal = cartItems.reduce(
     (sum, i) => sum + (i?.price || 0) * i.qty,
     0,
   );
   const cartCount = cartItems.reduce((sum, i) => sum + i.qty, 0);
   const handlePlaceOrder = async () => {
+    if (cartItems.length === 0) return;
+
     setSubmitting(true);
     setApiError("");
     try {
       const token = getAccessToken();
       const items = cartItems.map((i) => ({
-        productId: i._id,
+        productId: productId(i),
         quantity: i.qty,
       }));
       const res = await fetch(`${BASE}/orders`, {
@@ -465,6 +438,7 @@ function PlaceOrder() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message);
+      onOrderPlaced?.(data.order);
       setSubmitted(true);
       setCart({});
     } catch (e) {
@@ -487,36 +461,7 @@ function PlaceOrder() {
           textAlign: "center",
         }}
       >
-        <div style={{ marginBottom: 12 }}>
-          <label
-            style={{
-              fontSize: "0.75rem",
-              color: "var(--text-muted)",
-              fontWeight: 600,
-              display: "block",
-              marginBottom: 4,
-            }}
-          >
-            Payment Type
-          </label>
-          <select
-            value={paymentType}
-            onChange={(e) => setPaymentType(e.target.value)}
-            style={{
-              width: "100%",
-              padding: "8px 10px",
-              background: "var(--card)",
-              border: "1px solid var(--border)",
-              borderRadius: 8,
-              color: "var(--text)",
-              fontSize: "0.85rem",
-            }}
-          >
-            <option value="cash">Cash</option>
-            <option value="credit">Credit</option>
-            <option value="upi">UPI</option>
-          </select>
-        </div>
+        <div style={{ fontSize: "3.5rem" }}>✅</div>
         <h2
           style={{
             fontFamily: "Sora,sans-serif",
@@ -530,12 +475,14 @@ function PlaceOrder() {
           Your order has been sent to the wholesaler for approval.
         </p>
         <button
-          onClick={handlePlaceOrder}
-          disabled={submitting}
+          onClick={() => {
+            setSubmitted(false);
+            setPaymentType("cash");
+          }}
           className="auth-submit-btn"
           style={{ maxWidth: 200, marginTop: 8 }}
         >
-          {submitting ? "Placing..." : "Place Order"}
+          Place Another Order
         </button>
       </div>
     );
@@ -617,8 +564,34 @@ function PlaceOrder() {
           </div>
         </div>
 
+        {apiError && (
+          <div
+            style={{
+              background: "rgba(239,68,68,0.1)",
+              border: "1px solid rgba(239,68,68,0.25)",
+              borderRadius: 10,
+              color: "var(--red)",
+              fontSize: "0.83rem",
+              fontWeight: 600,
+              marginBottom: 16,
+              padding: "10px 14px",
+            }}
+          >
+            {apiError}
+          </div>
+        )}
+
         {/* Product Grid */}
-        <div
+        {loading ? (
+          <div style={{ color: "var(--text-muted)", padding: "36px 0" }}>
+            Loading products...
+          </div>
+        ) : filtered.length === 0 ? (
+          <div style={{ color: "var(--text-muted)", padding: "36px 0" }}>
+            No products available from your wholesaler yet.
+          </div>
+        ) : (
+          <div
           style={{
             display: "grid",
             gridTemplateColumns: "repeat(auto-fill, minmax(200px,1fr))",
@@ -627,15 +600,15 @@ function PlaceOrder() {
         >
           {filtered.map((product) => (
             <div
-              key={product.id}
+              key={productId(product)}
               style={{
                 background: "var(--card)",
                 border: "1px solid var(--border)",
                 borderRadius: 12,
-                padding: 18,
                 display: "flex",
                 flexDirection: "column",
                 gap: 10,
+                overflow: "hidden",
                 transition: "all 0.2s",
               }}
               onMouseEnter={(e) => {
@@ -647,6 +620,19 @@ function PlaceOrder() {
                 e.currentTarget.style.transform = "translateY(0)";
               }}
             >
+              {product.image?.url && (
+                <img
+                  src={product.image.url}
+                  alt={product.name}
+                  style={{
+                    width: "100%",
+                    height: 130,
+                    objectFit: "cover",
+                    background: "var(--card-2)",
+                  }}
+                />
+              )}
+              <div style={{ padding: 18, display: "flex", flexDirection: "column", gap: 10, flex: 1 }}>
               <div
                 style={{
                   display: "flex",
@@ -666,9 +652,7 @@ function PlaceOrder() {
                 >
                   {product.category}
                 </span>
-                <Badge
-                  status={product.stock === "Low Stock" ? "Low" : "Approved"}
-                />
+                <Badge status={product.stock <= product.lowStockAt ? "Low" : "Approved"} />
               </div>
               <div>
                 <div
@@ -697,7 +681,7 @@ function PlaceOrder() {
               </div>
 
               {/* Qty controls */}
-              {cart[product.id] ? (
+              {cart[productId(product)] ? (
                 <div
                   style={{
                     display: "flex",
@@ -707,7 +691,7 @@ function PlaceOrder() {
                   }}
                 >
                   <button
-                    onClick={() => removeFromCart(product.id)}
+                    onClick={() => removeFromCart(productId(product))}
                     style={{
                       width: 30,
                       height: 30,
@@ -732,10 +716,10 @@ function PlaceOrder() {
                       color: "var(--amber)",
                     }}
                   >
-                    {cart[product.id]}
+                    {cart[productId(product)]}
                   </span>
                   <button
-                    onClick={() => addToCart(product.id)}
+                    onClick={() => addToCart(productId(product))}
                     style={{
                       width: 30,
                       height: 30,
@@ -756,7 +740,8 @@ function PlaceOrder() {
                 </div>
               ) : (
                 <button
-                  onClick={() => addToCart(product.id)}
+                  onClick={() => addToCart(productId(product))}
+                  disabled={product.stock <= 0}
                   style={{
                     width: "100%",
                     padding: "8px",
@@ -764,7 +749,7 @@ function PlaceOrder() {
                     border: "1px solid rgba(245,158,11,0.25)",
                     color: "var(--amber)",
                     borderRadius: 8,
-                    cursor: "pointer",
+                    cursor: product.stock > 0 ? "pointer" : "not-allowed",
                     fontFamily: "DM Sans,sans-serif",
                     fontWeight: 600,
                     fontSize: "0.8rem",
@@ -777,12 +762,14 @@ function PlaceOrder() {
                     (e.currentTarget.style.background = "var(--amber-dim)")
                   }
                 >
-                  + Add to Order
+                  {product.stock > 0 ? "+ Add to Order" : "Out of Stock"}
                 </button>
               )}
+              </div>
             </div>
           ))}
         </div>
+        )}
       </div>
 
       {/* Cart */}
@@ -867,7 +854,7 @@ function PlaceOrder() {
           ) : (
             cartItems.map((item) => (
               <div
-                key={item.id}
+                key={productId(item)}
                 style={{
                   display: "flex",
                   justifyContent: "space-between",
@@ -916,8 +903,39 @@ function PlaceOrder() {
                 ₹{cartTotal.toLocaleString()}
               </span>
             </div>
+            <div style={{ marginBottom: 14 }}>
+              <label
+                style={{
+                  fontSize: "0.75rem",
+                  color: "var(--text-muted)",
+                  fontWeight: 600,
+                  display: "block",
+                  marginBottom: 5,
+                }}
+              >
+                Payment Type
+              </label>
+              <select
+                value={paymentType}
+                onChange={(e) => setPaymentType(e.target.value)}
+                style={{
+                  width: "100%",
+                  padding: "9px 10px",
+                  background: "var(--card)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 8,
+                  color: "var(--text)",
+                  fontSize: "0.85rem",
+                }}
+              >
+                <option value="cash">Cash</option>
+                <option value="credit">Credit</option>
+                <option value="upi">UPI</option>
+              </select>
+            </div>
             <button
-              onClick={() => setSubmitted(true)}
+              onClick={handlePlaceOrder}
+              disabled={submitting}
               style={{
                 width: "100%",
                 padding: "12px",
@@ -928,7 +946,8 @@ function PlaceOrder() {
                 fontFamily: "DM Sans,sans-serif",
                 fontWeight: 700,
                 fontSize: "0.9rem",
-                cursor: "pointer",
+                cursor: submitting ? "not-allowed" : "pointer",
+                opacity: submitting ? 0.75 : 1,
                 transition: "all 0.2s",
               }}
               onMouseEnter={(e) => {
@@ -940,7 +959,7 @@ function PlaceOrder() {
                 e.currentTarget.style.transform = "translateY(0)";
               }}
             >
-              🚀 Place Order
+              {submitting ? "Placing..." : "🚀 Place Order"}
             </button>
             <div
               style={{
@@ -960,7 +979,7 @@ function PlaceOrder() {
 }
 
 // ── My Orders Panel ───────────────────────────────────────────────────────────
-function MyOrders() {
+function MyOrders({ orders, loading, apiError, onRefresh }) {
   return (
     <div
       style={{
@@ -974,21 +993,44 @@ function MyOrders() {
         style={{
           padding: "18px 22px",
           borderBottom: "1px solid var(--border)",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          gap: 12,
         }}
       >
-        <div
+        <div>
+          <div
+            style={{
+              fontFamily: "Sora,sans-serif",
+              fontWeight: 700,
+              fontSize: "0.95rem",
+              marginBottom: 3,
+            }}
+          >
+            📋 Order History
+          </div>
+          <div style={{ fontSize: "0.775rem", color: "var(--text-muted)" }}>
+            All your past and current orders
+          </div>
+        </div>
+        <button
+          onClick={onRefresh}
           style={{
-            fontFamily: "Sora,sans-serif",
-            fontWeight: 700,
-            fontSize: "0.95rem",
-            marginBottom: 3,
+            fontSize: "0.78rem",
+            color: "var(--amber)",
+            background: "transparent",
+            border: "1px solid var(--border)",
+            borderRadius: 7,
+            padding: "6px 12px",
+            cursor: "pointer",
+            fontFamily: "DM Sans,sans-serif",
+            fontWeight: 600,
+            whiteSpace: "nowrap",
           }}
         >
-          📋 Order History
-        </div>
-        <div style={{ fontSize: "0.775rem", color: "var(--text-muted)" }}>
-          All your past and current orders
-        </div>
+          Refresh
+        </button>
       </div>
       <div style={{ overflowX: "auto" }}>
         <table
@@ -1005,7 +1047,7 @@ function MyOrders() {
                 borderBottom: "1px solid var(--border)",
               }}
             >
-              {["Order ID", "Date", "Items", "Amount", "Status", "Action"].map(
+              {["Order ID", "Date", "Items", "Amount", "Status", "Payment"].map(
                 (h) => (
                   <th
                     key={h}
@@ -1027,21 +1069,61 @@ function MyOrders() {
             </tr>
           </thead>
           <tbody>
-            {orderHistory.map((order) => (
-              <tr
-                key={order.id}
-                style={{
-                  borderBottom: "1px solid rgba(255,255,255,0.04)",
-                  transition: "background 0.15s",
-                  cursor: "default",
-                }}
-                onMouseEnter={(e) =>
-                  (e.currentTarget.style.background = "rgba(255,255,255,0.02)")
-                }
-                onMouseLeave={(e) =>
-                  (e.currentTarget.style.background = "transparent")
-                }
-              >
+            {loading ? (
+              <tr>
+                <td
+                  colSpan={6}
+                  style={{
+                    padding: 24,
+                    color: "var(--text-muted)",
+                    textAlign: "center",
+                  }}
+                >
+                  Loading orders...
+                </td>
+              </tr>
+            ) : apiError ? (
+              <tr>
+                <td
+                  colSpan={6}
+                  style={{
+                    padding: 24,
+                    color: "var(--red)",
+                    textAlign: "center",
+                  }}
+                >
+                  {apiError}
+                </td>
+              </tr>
+            ) : orders.length === 0 ? (
+              <tr>
+                <td
+                  colSpan={6}
+                  style={{
+                    padding: 24,
+                    color: "var(--text-muted)",
+                    textAlign: "center",
+                  }}
+                >
+                  No orders yet. Place your first order from the catalog.
+                </td>
+              </tr>
+            ) : (
+              orders.map((order) => (
+                <tr
+                  key={order._id}
+                  style={{
+                    borderBottom: "1px solid rgba(255,255,255,0.04)",
+                    transition: "background 0.15s",
+                    cursor: "default",
+                  }}
+                  onMouseEnter={(e) =>
+                    (e.currentTarget.style.background = "rgba(255,255,255,0.02)")
+                  }
+                  onMouseLeave={(e) =>
+                    (e.currentTarget.style.background = "transparent")
+                  }
+                >
                 <td
                   style={{
                     padding: "13px 18px",
@@ -1051,7 +1133,7 @@ function MyOrders() {
                     whiteSpace: "nowrap",
                   }}
                 >
-                  {order.id}
+                  {order.orderNumber || `#${order._id?.slice(-6) || "ORDER"}`}
                 </td>
                 <td
                   style={{
@@ -1061,12 +1143,12 @@ function MyOrders() {
                     fontSize: "0.78rem",
                   }}
                 >
-                  {order.date}
+                  {formatOrderDate(order.createdAt)}
                 </td>
                 <td
                   style={{ padding: "13px 18px", color: "var(--text-muted)" }}
                 >
-                  {order.items} items
+                  {formatItemCount(order.items)}
                 </td>
                 <td
                   style={{
@@ -1075,29 +1157,30 @@ function MyOrders() {
                     fontWeight: 600,
                   }}
                 >
-                  {order.amount}
+                  {formatAmount(order.totalAmount)}
                 </td>
                 <td style={{ padding: "13px 18px" }}>
                   <Badge status={order.status} />
                 </td>
                 <td style={{ padding: "13px 18px" }}>
-                  <button
+                  <span
                     style={{
                       background: "rgba(255,255,255,0.06)",
-                      border: "none",
                       borderRadius: 6,
                       padding: "5px 12px",
                       color: "var(--text-muted)",
                       fontSize: "0.75rem",
-                      cursor: "pointer",
                       fontFamily: "DM Sans,sans-serif",
+                      textTransform: "capitalize",
+                      whiteSpace: "nowrap",
                     }}
                   >
-                    View
-                  </button>
+                    {order.paymentType || "cash"}
+                  </span>
                 </td>
               </tr>
-            ))}
+              ))
+            )}
           </tbody>
         </table>
       </div>
@@ -1305,12 +1388,47 @@ function MyAccount() {
 export default function RetailerDashboard() {
   const [active, setActive] = useState("dashboard");
   const [collapsed, setCollapsed] = useState(false);
+  const {
+    orders,
+    loading: ordersLoading,
+    apiError: ordersError,
+    refreshOrders,
+  } = useRetailerOrders(20);
+
+  const now = new Date();
+  const pendingCount = orders.filter((order) => order.status === "pending").length;
+  const latestOrder = orders[0];
+  const thisMonthOrders = orders.filter((order) => {
+    const createdAt = new Date(order.createdAt);
+    return (
+      !Number.isNaN(createdAt.getTime()) &&
+      createdAt.getMonth() === now.getMonth() &&
+      createdAt.getFullYear() === now.getFullYear()
+    );
+  });
+  const thisMonthSpent = thisMonthOrders.reduce(
+    (sum, order) => sum + Number(order.totalAmount || 0),
+    0,
+  );
+  const openCreditAmount = orders
+    .filter(
+      (order) => order.paymentType === "credit" && order.paymentStatus !== "paid",
+    )
+    .reduce((sum, order) => sum + Number(order.totalAmount || 0), 0);
 
   const sidebarWidth = collapsed ? 68 : 240;
 
   const renderPanel = () => {
-    if (active === "order") return <PlaceOrder />;
-    if (active === "orders") return <MyOrders />;
+    if (active === "order") return <PlaceOrder onOrderPlaced={refreshOrders} />;
+    if (active === "orders")
+      return (
+        <MyOrders
+          orders={orders}
+          loading={ordersLoading}
+          apiError={ordersError}
+          onRefresh={refreshOrders}
+        />
+      );
     if (active === "account") return <MyAccount />;
 
     // Dashboard overview
@@ -1327,7 +1445,7 @@ export default function RetailerDashboard() {
           <StatCard
             icon="📦"
             label="Pending Orders"
-            value="1"
+            value={ordersLoading ? "..." : String(pendingCount)}
             delta="Awaiting approval"
             deltaType="neutral"
             color="amber"
@@ -1335,24 +1453,30 @@ export default function RetailerDashboard() {
           <StatCard
             icon="💳"
             label="Credit Due"
-            value="₹8,200"
-            delta="Due in 5 days"
+            value={ordersLoading ? "..." : formatCompactAmount(openCreditAmount)}
+            delta="Open credit orders"
             deltaType="down"
             color="red"
           />
           <StatCard
             icon="✅"
             label="Last Order"
-            value="Today"
-            delta="Order #1048"
+            value={
+              ordersLoading
+                ? "..."
+                : latestOrder
+                  ? formatOrderDate(latestOrder.createdAt)
+                  : "No orders"
+            }
+            delta={latestOrder?.orderNumber || "Place your first order"}
             deltaType="up"
             color="green"
           />
           <StatCard
             icon="💰"
             label="This Month Spent"
-            value="₹16K"
-            delta="4 orders placed"
+            value={ordersLoading ? "..." : formatCompactAmount(thisMonthSpent)}
+            delta={`${thisMonthOrders.length} orders placed`}
             deltaType="up"
             color="teal"
           />
@@ -1496,49 +1620,81 @@ export default function RetailerDashboard() {
               gap: 10,
             }}
           >
-            {orderHistory.slice(0, 3).map((order) => (
+            {ordersLoading ? (
               <div
-                key={order.id}
                 style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  padding: "10px 12px",
-                  background: "var(--card-2)",
-                  borderRadius: 9,
+                  padding: "14px 12px",
+                  color: "var(--text-muted)",
+                  textAlign: "center",
                 }}
               >
-                <div>
-                  <div
-                    style={{
-                      fontFamily: "Sora,sans-serif",
-                      fontWeight: 600,
-                      color: "var(--amber)",
-                      fontSize: "0.82rem",
-                    }}
-                  >
-                    {order.id}
-                  </div>
-                  <div
-                    style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}
-                  >
-                    {order.date} · {order.items} items
-                  </div>
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                  <span
-                    style={{
-                      fontWeight: 700,
-                      color: "var(--text)",
-                      fontSize: "0.875rem",
-                    }}
-                  >
-                    {order.amount}
-                  </span>
-                  <Badge status={order.status} />
-                </div>
+                Loading orders...
               </div>
-            ))}
+            ) : ordersError ? (
+              <div
+                style={{
+                  padding: "14px 12px",
+                  color: "var(--red)",
+                  textAlign: "center",
+                }}
+              >
+                {ordersError}
+              </div>
+            ) : orders.length === 0 ? (
+              <div
+                style={{
+                  padding: "14px 12px",
+                  color: "var(--text-muted)",
+                  textAlign: "center",
+                }}
+              >
+                No orders yet.
+              </div>
+            ) : (
+              orders.slice(0, 3).map((order) => (
+                <div
+                  key={order._id}
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    padding: "10px 12px",
+                    background: "var(--card-2)",
+                    borderRadius: 9,
+                  }}
+                >
+                  <div>
+                    <div
+                      style={{
+                        fontFamily: "Sora,sans-serif",
+                        fontWeight: 600,
+                        color: "var(--amber)",
+                        fontSize: "0.82rem",
+                      }}
+                    >
+                      {order.orderNumber || `#${order._id?.slice(-6) || "ORDER"}`}
+                    </div>
+                    <div
+                      style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}
+                    >
+                      {formatOrderDate(order.createdAt)} · {formatItemCount(order.items)}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <span
+                      style={{
+                        fontWeight: 700,
+                        color: "var(--text)",
+                        fontSize: "0.875rem",
+                      }}
+                    >
+                      {formatAmount(order.totalAmount)}
+                    </span>
+                    <Badge status={order.status} />
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
 

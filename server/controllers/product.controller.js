@@ -31,14 +31,21 @@ export const createProduct = async (req, res, next) => {
 // ─────────────────────────────────────────────────────────────
 export const getProducts = async (req, res, next) => {
   try {
-    const { id, role } = req.user
-    const { category, search, lowStock, wholesalerId } = req.query
+    const { id, role, wholesaler } = req.user
+    const { category, search, lowStock } = req.query
 
     let filter = { isActive: true }
 
     if (role === 'wholesaler') filter.wholesaler = id
-    if (role === 'retailer')   filter.wholesaler = req.user.wholesaler 
-    if (role === 'salesman')   filter.wholesaler = req.user.wholesaler 
+    if (role === 'retailer' || role === 'salesman') {
+      if (!wholesaler) {
+        return res.status(403).json({
+          success: false,
+          message: 'You are not linked to a wholesaler yet.',
+        })
+      }
+      filter.wholesaler = wholesaler
+    }
     if (category) filter.category = category
     if (search)   filter.name     = { $regex: search, $options: 'i' }
     if (lowStock === 'true') filter.$expr = { $lte: ['$stock', '$lowStockAt'] }

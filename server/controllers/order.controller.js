@@ -1,6 +1,7 @@
 import Order   from '../models/Order.model.js'
 import Product from '../models/product.model.js'
 import Credit  from '../models/Credit.model.js'
+import User    from '../models/User.model.js'
 
 // ─────────────────────────────────────────────────────────────
 // POST /api/orders
@@ -8,21 +9,39 @@ import Credit  from '../models/Credit.model.js'
 // ─────────────────────────────────────────────────────────────
 export const createOrder = async (req, res, next) => {
   try {
-    const { items, paymentType, notes, wholesalerId } = req.body
+    const { items, paymentType, notes } = req.body
     const { id: requesterId, role } = req.user
 
     if (!items || items.length === 0) {
       return res.status(400).json({ success: false, message: 'Order must have at least one item.' })
     }
 
-    // Determine retailer and wholesaler
-    let retailerId     = requesterId
-    let wholesalerIdFinal = role === 'retailer' ? req.user.wholesaler : wholesalerId
+    const normalizedPaymentType = ['cash', 'credit', 'upi'].includes(paymentType) ? paymentType : 'cash'
+
+    let retailerId = role === 'retailer' ? requesterId : req.body.retailerId
+    let wholesalerIdFinal = role === 'wholesaler' ? requesterId : req.user.wholesaler
+
     if (role === 'salesman') {
-      // Salesman places order on behalf of a retailer
-      retailerId        = req.body.retailerId
-      wholesalerIdFinal = req.body.wholesalerId
       if (!retailerId) return res.status(400).json({ success: false, message: 'retailerId is required for salesman orders.' })
+    }
+
+    if (role === 'wholesaler' && !retailerId) {
+      return res.status(400).json({ success: false, message: 'retailerId is required for wholesaler-created orders.' })
+    }
+
+    if (!wholesalerIdFinal) {
+      return res.status(403).json({ success: false, message: 'Retailer is not linked to a wholesaler yet.' })
+    }
+
+    const retailer = await User.findOne({
+      _id: retailerId,
+      role: 'retailer',
+      wholesaler: wholesalerIdFinal,
+      status: 'active',
+    }).select('_id')
+
+    if (!retailer) {
+      return res.status(403).json({ success: false, message: 'Retailer is not linked to this wholesaler.' })
     }
 
     // Validate products and calculate totals
@@ -30,24 +49,48 @@ export const createOrder = async (req, res, next) => {
     const orderItems = []
 
     for (const item of items) {
+      const quantity = Number(item.quantity)
+      if (!Number.isFinite(quantity) || quantity < 1) {
+        return res.status(400).json({ success: false, message: 'Each order item must have a valid quantity.' })
+      }
+
       const product = await Product.findOne({ _id: item.productId, wholesaler: wholesalerIdFinal, isActive: true })
       if (!product) {
         return res.status(404).json({ success: false, message: `Product ${item.productId} not found.` })
       }
-      if (product.stock < item.quantity) {
+      if (product.stock < quantity) {
         return res.status(400).json({ success: false, message: `Insufficient stock for ${product.name}. Available: ${product.stock}` })
       }
 
-      const totalPrice = product.price * item.quantity
+      const totalPrice = product.price * quantity
       totalAmount     += totalPrice
 
       orderItems.push({
         product:     product._id,
         productName: product.name,
-        quantity:    item.quantity,
+        quantity,
         unitPrice:   product.price,
         totalPrice,
       })
+    }
+
+    let creditAccount = null
+    if (normalizedPaymentType === 'credit') {
+      creditAccount = await Credit.findOne({ retailer: retailerId, wholesaler: wholesalerIdFinal })
+      if (!creditAccount) {
+        return res.status(400).json({ success: false, message: 'Credit account not found for this retailer.' })
+      }
+      if (creditAccount.status === 'blocked') {
+        return res.status(400).json({ success: false, message: 'This retailer credit account is blocked.' })
+      }
+
+      const newDue = creditAccount.currentDue + totalAmount
+      if (creditAccount.creditLimit > 0 && newDue > creditAccount.creditLimit) {
+        return res.status(400).json({
+          success: false,
+          message: `Credit limit exceeded. Limit: ₹${creditAccount.creditLimit}, Current due: ₹${creditAccount.currentDue}`,
+        })
+      }
     }
 
     // Create order
@@ -57,9 +100,22 @@ export const createOrder = async (req, res, next) => {
       salesman:    role === 'salesman' ? requesterId : null,
       items:       orderItems,
       totalAmount,
-      paymentType: paymentType || 'cash',
+      paymentType: normalizedPaymentType,
+      paymentStatus: normalizedPaymentType === 'credit' ? 'unpaid' : 'paid',
       notes,
     })
+
+    if (creditAccount) {
+      creditAccount.currentDue += totalAmount
+      creditAccount.status = creditAccount.currentDue > 0 ? 'overdue' : 'clear'
+      creditAccount.transactions.push({
+        type: 'debit',
+        amount: totalAmount,
+        note: `Order ${order.orderNumber}`,
+        order: order._id,
+      })
+      await creditAccount.save()
+    }
 
     await order.populate(['retailer', 'salesman'])
 
@@ -68,7 +124,6 @@ export const createOrder = async (req, res, next) => {
     next(err)
   }
 }
-
 // ─────────────────────────────────────────────────────────────
 // GET /api/orders
 // List orders — filtered by role automatically
@@ -135,6 +190,7 @@ export const getOrder = async (req, res, next) => {
   }
 }
 
+
 // ─────────────────────────────────────────────────────────────
 // PATCH /api/orders/:id/status
 // Wholesaler approves / rejects / dispatches
@@ -162,10 +218,12 @@ export const updateOrderStatus = async (req, res, next) => {
       dispatched: ['delivered'],
     }
 
-    if (!validTransitions[order.status]?.includes(status)) {
+    const previousStatus = order.status
+
+    if (!validTransitions[previousStatus]?.includes(status)) {
       return res.status(400).json({
         success: false,
-        message: `Cannot move order from ${order.status} to ${status}.`,
+        message: `Cannot move order from ${previousStatus} to ${status}.`,
       })
     }
 
@@ -183,9 +241,23 @@ export const updateOrderStatus = async (req, res, next) => {
     if (status === 'cancelled')  {
       order.rejectionReason = rejectionReason || ''
       // If was dispatched, restore stock
-      if (order.status === 'dispatched') {
+      if (previousStatus === 'dispatched') {
         for (const item of order.items) {
           await Product.findByIdAndUpdate(item.product, { $inc: { stock: item.quantity } })
+        }
+      }
+      if (order.paymentType === 'credit' && order.paymentStatus === 'unpaid') {
+        const creditAccount = await Credit.findOne({ retailer: order.retailer, wholesaler: order.wholesaler })
+        if (creditAccount) {
+          creditAccount.currentDue = Math.max(0, creditAccount.currentDue - order.totalAmount)
+          creditAccount.status = creditAccount.currentDue > 0 ? 'overdue' : 'clear'
+          creditAccount.transactions.push({
+            type: 'credit',
+            amount: order.totalAmount,
+            note: `Cancelled order ${order.orderNumber}`,
+            order: order._id,
+          })
+          await creditAccount.save()
         }
       }
     }
@@ -196,6 +268,7 @@ export const updateOrderStatus = async (req, res, next) => {
     next(err)
   }
 }
+
 
 // ─────────────────────────────────────────────────────────────
 // GET /api/orders/stats

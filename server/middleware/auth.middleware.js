@@ -25,8 +25,21 @@ export const protect = async (req, res, next) => {
       return res.status(401).json({ success: false, message })
     }
 
-    // Attach user to request
-    req.user = { id: decoded.id, role: decoded.role , wholesaler: decoded.wholesaler }
+    const user = await User.findById(decoded.id).select('role wholesaler status')
+    if (!user) {
+      return res.status(401).json({ success: false, message: 'User no longer exists.' })
+    }
+
+    if (user.status === 'suspended') {
+      return res.status(403).json({ success: false, message: 'Your account has been suspended.' })
+    }
+
+    // Attach the latest account state so retailer-wholesaler links work immediately.
+    req.user = {
+      id: user._id.toString(),
+      role: user.role,
+      wholesaler: user.wholesaler ? user.wholesaler.toString() : null,
+    }
     next()
   } catch (err) {
     next(err)
