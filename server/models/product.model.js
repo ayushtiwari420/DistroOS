@@ -18,6 +18,11 @@ const productSchema = new mongoose.Schema({
 
   // ── Status ──
   isActive:    { type: Boolean, default: true },
+  // images will be stored in Cloudinary, so we save the URL and public ID for deletion
+  image: {
+  url:       { type: String, default: '' },
+  publicId:  { type: String, default: '' },
+},
 
 }, { timestamps: true })
 

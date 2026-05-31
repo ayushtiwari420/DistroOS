@@ -1,4 +1,4 @@
-import Product from '../models/Product.model.js'
+import Product from '../models/product.model.js'
 
 // ─────────────────────────────────────────────────────────────
 // POST /api/products
@@ -9,15 +9,20 @@ export const createProduct = async (req, res, next) => {
     const { name, description, category, unit, price, costPrice, stock, lowStockAt } = req.body
 
     const product = await Product.create({
-      wholesaler: req.user.id,
-      name, description, category, unit,
-      price, costPrice, stock, lowStockAt,
-    })
+     wholesaler: req.user.id,
+     name, description, category, unit,
+     price, costPrice, stock, lowStockAt,
+     image: {
+        url:      req.file?.path || '',
+        publicId: req.file?.filename || '',
+    }
+})
 
     return res.status(201).json({ success: true, message: 'Product created.', product })
   } catch (err) {
-    next(err)
-  }
+  console.error('CREATE PRODUCT ERROR:', err)
+  next(err)
+}
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -70,7 +75,12 @@ export const updateProduct = async (req, res, next) => {
 
     const fields = ['name', 'description', 'category', 'unit', 'price', 'costPrice', 'stock', 'lowStockAt', 'isActive']
     fields.forEach(f => { if (req.body[f] !== undefined) product[f] = req.body[f] })
-
+    if (req.file) {
+      product.image = {
+      url:      req.file.path,
+      publicId: req.file.filename,
+    }
+  }
     await product.save()
     return res.status(200).json({ success: true, message: 'Product updated.', product })
   } catch (err) {

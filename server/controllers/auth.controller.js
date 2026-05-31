@@ -35,6 +35,8 @@ export const register = async (req, res, next) => {
 
     // Check duplicate email
     const existing = await User.findOne({ email })
+    console.log("EMAIL:", email)
+    console.log("EXISTING USER:", existing)
     if (existing) {
       return res.status(409).json({ success: false, message: 'An account with this email already exists.' })
     }
