@@ -71,6 +71,11 @@ const svc = {
       method: "PATCH",
       body: JSON.stringify({ quantity: qty, type }),
     }),
+  bulkUpdateProducts: (file) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    return api("/products/bulk-upload", { method: "POST", body: fd });
+  },
   // retailers
   getRetailers: (p = "") => api(`/retailers${p}`),
   searchRetailer: (email) =>
@@ -1148,6 +1153,28 @@ function ProductsTab() {
     stock: "",
     lowStockAt: 10,
   });
+  const [bulkResult, setBulkResult] = useState(null);
+  const [bulkLoading, setBulkLoading] = useState(false);
+
+  const handleBulkUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    setBulkLoading(true);
+    setError("");
+    setBulkResult(null);
+
+    try {
+      const res = await svc.bulkUpdateProducts(file);
+      setBulkResult(res);
+      await load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBulkLoading(false);
+      e.target.value = "";
+    }
+  };
   const [imageFile, setImageFile] = useState(null);
   const [imagePreview, setImagePreview] = useState("");
   const [stockAdj, setStockAdj] = useState({ qty: "", type: "add" });
@@ -1287,7 +1314,22 @@ function ProductsTab() {
         >
           <Plus size={15} /> Add Product
         </button>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', background: 'var(--surface)', color: 'var(--blue)', border: '1.5px solid var(--blue)', borderRadius: 8, cursor: "pointer", fontSize: "0.85rem", fontWeight: 600 }}>
+          {bulkLoading ? "Uploading..." : "Upload Price List"}
+          <input type="file" accept=".xlsx,.xls" onChange={handleBulkUpload} disabled={bulkLoading} style={{ display: "none" }} />
+        </label>
       </div>
+      {bulkResult && (
+        <div style={{ background: "#F0FDF4", border: "1px solid #86EFAC", borderRadius: 8, padding: "10px 14px", fontSize: "0.83rem", color: "#166534" }}>
+          <div>{bulkResult.message}</div>
+          {bulkResult.summary?.errors?.length > 0 && (
+            <div style={{ marginTop: 6, color: "#92400E" }}>
+              {bulkResult.summary.errors.slice(0, 5).join(" ")}
+              {bulkResult.summary.errors.length > 5 && ` ${bulkResult.summary.errors.length - 5} more issue(s).`}
+            </div>
+          )}
+        </div>
+      )}
 
       <div style={{ display: "flex", gap: 10 }}>
         <div style={{ position: "relative", flex: 1, maxWidth: 320 }}>
