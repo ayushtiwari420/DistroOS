@@ -5,9 +5,12 @@ import {
   refresh,
   logout,
   getMe,
+  updateProfile,
+  changePassword
 } from '../controllers/auth.controller.js'
 import { protect }                             from '../middleware/auth.middleware.js'
 import { validateRegister, validateLogin }     from '../middleware/validate.middleware.js'
+import upload from '../middleware/upload.middleware.js'
 
 const router = Router()
 
@@ -27,5 +30,8 @@ router.post('/logout', logout)
 // ── Protected ───────────────────────────────
 // GET /api/auth/me
 router.get('/me', protect, getMe)
+
+router.put('/me', protect, upload.single('profileImage'), updateProfile)
+router.put('/change-password', protect, changePassword)
 
 export default router

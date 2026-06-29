@@ -44,6 +44,12 @@ const userSchema = new mongoose.Schema(
       default: 'pending',
     },
 
+    // ── Profile Image ─────────────────────────
+    profileImage: {
+      url:      { type: String },
+      publicId: { type: String },
+    },
+
     // ── Refresh Tokens ────────────────────────
     refreshTokens: [{ type: String, select: false }],
 

@@ -14,6 +14,7 @@ import retailerRoutes from './routes/retailer.routes.js'
 import salesmanRoutes from './routes/salesman.routes.js'
 import creditRoutes   from './routes/credit.routes.js'
 import adminRoutes    from './routes/admin.routes.js'
+import profileRoutes  from './routes/profile.routes.js'
 
 dotenv.config({ path: './server/.env' })
 
@@ -44,10 +45,11 @@ app.use('/api/retailers', retailerRoutes)
 app.use('/api/salesmen',  salesmanRoutes)
 app.use('/api/credit',    creditRoutes)
 app.use('/api/admin',     adminRoutes)
+app.use('/api/profile',   profileRoutes)
 
 // ── Health ──
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', message: 'DistroOS API running', routes: ['/auth', '/orders', '/products', '/retailers', '/salesmen', '/credit', '/admin'] })
+  res.json({ status: 'ok', message: 'DistroOS API running', routes: ['/auth', '/orders', '/products', '/retailers', '/salesmen', '/credit', '/admin', '/profile'] })
 })
 
 // ── Error handler ──

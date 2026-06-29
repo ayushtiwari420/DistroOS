@@ -238,3 +238,56 @@ export const getMe = async (req, res, next) => {
     next(err)
   }
 }
+
+// ─────────────────────────────────────────────────────────────
+// PUT /api/auth/me
+// Update logged-in user's profile
+// ─────────────────────────────────────────────────────────────
+export const updateProfile = async (req, res, next) => {
+  try {
+    const user = await User.findById(req.user.id)
+    if (!user) return res.status(404).json({ success: false, message: 'User not found.' })
+
+    const fields = ['name', 'phone', 'city', 'businessName']
+    fields.forEach(f => { if (req.body[f] !== undefined) user[f] = req.body[f] })
+
+    if (req.file) {
+      user.profileImage = {
+        url:      req.file.path,
+        publicId: req.file.filename,
+      }
+    }
+
+    await user.save({ validateBeforeSave: false })
+
+    return res.status(200).json({ success: true, message: 'Profile updated successfully.', user })
+  } catch (err) {
+    next(err)
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// PUT /api/auth/change-password
+// ─────────────────────────────────────────────────────────────
+export const changePassword = async (req, res, next) => {
+  try {
+    const { currentPassword, newPassword } = req.body
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ success: false, message: 'Both current and new password are required.' })
+    }
+
+    const user = await User.findById(req.user.id).select('+password')
+    if (!user) return res.status(404).json({ success: false, message: 'User not found.' })
+
+    const isMatch = await user.comparePassword(currentPassword)
+    if (!isMatch) return res.status(401).json({ success: false, message: 'Current password is incorrect.' })
+
+    user.password = newPassword
+    await user.save()
+
+    return res.status(200).json({ success: true, message: 'Password changed successfully.' })
+  } catch (err) {
+    next(err)
+  }
+}

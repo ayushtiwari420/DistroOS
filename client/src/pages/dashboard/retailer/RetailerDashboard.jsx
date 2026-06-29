@@ -5,6 +5,7 @@ import StatCard from "../../../components/ui/StatCard";
 import { useAuth } from "../../../context/AuthContext";
 
 import { getAccessToken } from "../../../context/AuthContext";
+import AccountProfile from '../../../components/shared/AccountProfile';
 
 const BASE = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
 
@@ -1188,202 +1189,6 @@ function MyOrders({ orders, loading, apiError, onRefresh }) {
   );
 }
 
-// ── My Account Panel ──────────────────────────────────────────────────────────
-function MyAccount() {
-  const { user } = useAuth();
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-      {/* Account Summary */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(200px,1fr))",
-          gap: 16,
-        }}
-      >
-        <StatCard
-          icon="💳"
-          label="Credit Limit"
-          value={user?.creditLimit || "₹25,000"}
-          color="teal"
-        />
-        <StatCard
-          icon="⚠️"
-          label="Amount Due"
-          value={user?.amountDue || "₹8,200"}
-          delta="Due in 5 days"
-          deltaType="down"
-          color="red"
-        />
-        <StatCard
-          icon="✅"
-          label="Total Paid"
-          value={user?.totalPaid || "₹1.2L"}
-          delta="This year"
-          deltaType="up"
-          color="green"
-        />
-        <StatCard
-          icon="📦"
-          label="Total Orders"
-          value={user?.totalOrders || "37"}
-          delta="This month"
-          deltaType="up"
-          color="amber"
-        />
-      </div>
-
-      {/* Profile Card */}
-      <div
-        style={{
-          background: "var(--card)",
-          border: "1px solid var(--border)",
-          borderRadius: 14,
-          padding: 24,
-        }}
-      >
-        <div
-          style={{
-            fontFamily: "Sora,sans-serif",
-            fontWeight: 700,
-            marginBottom: 20,
-            fontSize: "0.95rem",
-          }}
-        >
-          👤 Business Profile
-        </div>
-        <div
-          style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}
-        >
-          {[
-            { label: "Business Name", value: user?.businessName || user?.name },
-            { label: "Owner Name", value: user?.ownerName },
-            { label: "Phone", value: user?.phone },
-            { label: "City", value: user?.city },
-            { label: "Assigned Salesman", value: user?.assignedSalesman },
-            { label: "Account Status", value: "Active ✅" },
-          ].map((f) => (
-            <div key={f.label}>
-              <div
-                style={{
-                  fontSize: "0.72rem",
-                  fontWeight: 700,
-                  color: "var(--text-muted)",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.05em",
-                  marginBottom: 4,
-                }}
-              >
-                {f.label}
-              </div>
-              <div
-                style={{
-                  fontSize: "0.9rem",
-                  color: "var(--text)",
-                  fontWeight: 500,
-                }}
-              >
-                {f.value}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Payment History */}
-      <div
-        style={{
-          background: "var(--card)",
-          border: "1px solid var(--border)",
-          borderRadius: 14,
-          overflow: "hidden",
-        }}
-      >
-        <div
-          style={{
-            padding: "16px 22px",
-            borderBottom: "1px solid var(--border)",
-          }}
-        >
-          <div
-            style={{
-              fontFamily: "Sora,sans-serif",
-              fontWeight: 700,
-              fontSize: "0.95rem",
-            }}
-          >
-            💰 Recent Payments
-          </div>
-        </div>
-        <div
-          style={{
-            padding: 16,
-            display: "flex",
-            flexDirection: "column",
-            gap: 10,
-          }}
-        >
-          {[
-            {
-              date: "Feb 15, 2026",
-              amount: "₹5,000",
-              mode: "Cash",
-              status: "Paid",
-            },
-            {
-              date: "Feb 08, 2026",
-              amount: "₹8,200",
-              mode: "UPI",
-              status: "Paid",
-            },
-            {
-              date: "Jan 28, 2026",
-              amount: "₹12,400",
-              mode: "Cheque",
-              status: "Paid",
-            },
-          ].map((p, i) => (
-            <div
-              key={i}
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                padding: "10px 12px",
-                background: "var(--card-2)",
-                borderRadius: 9,
-              }}
-            >
-              <div>
-                <div
-                  style={{
-                    fontSize: "0.82rem",
-                    color: "var(--text)",
-                    fontWeight: 500,
-                  }}
-                >
-                  {p.date}
-                </div>
-                <div
-                  style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}
-                >
-                  via {p.mode}
-                </div>
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                <span style={{ fontWeight: 700, color: "var(--green)" }}>
-                  {p.amount}
-                </span>
-                <Badge status={p.status} />
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ── Main Dashboard ────────────────────────────────────────────────────────────
 export default function RetailerDashboard() {
   const [active, setActive] = useState("dashboard");
@@ -1429,7 +1234,7 @@ export default function RetailerDashboard() {
           onRefresh={refreshOrders}
         />
       );
-    if (active === "account") return <MyAccount />;
+    if (active === "account") return <AccountProfile />;
 
     // Dashboard overview
     return (

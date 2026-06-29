@@ -6,7 +6,6 @@ import {
   Store,
   CreditCard,
   Users,
-  Settings,
   LogOut,
   ChevronLeft,
   ChevronRight,
@@ -21,10 +20,12 @@ import {
   Check,
   UserCheck,
   UserPlus,
+  User
 } from "lucide-react";
 import { useAuth } from "../../../context/AuthContext";
 import { getAccessToken } from "../../../context/AuthContext";
 import BrandLogo from "../../../components/ui/BrandLogo";
+import AccountProfile from "../../../components/shared/AccountProfile";
 
 // ─────────────────────────────────────────────────────────────
 // API HELPER
@@ -343,6 +344,7 @@ const navItems = [
   { key: "retailers", label: "Retailers", icon: Store },
   { key: "salesmen", label: "Salesmen", icon: Users },
   { key: "credit", label: "Credit", icon: CreditCard },
+  { key: "account", label: "My Account", icon: User },
 ];
 
 function Sidebar({ active, setActive, collapsed, setCollapsed }) {
@@ -496,7 +498,6 @@ function Sidebar({ active, setActive, collapsed, setCollapsed }) {
       {/* Bottom */}
       <div style={{ paddingBottom: 12, borderTop: "1px solid var(--border)" }}>
         {[
-          { label: "Settings", icon: Settings, action: () => {}, red: false },
           { label: "Logout", icon: LogOut, action: logout, red: true },
         ].map((item) => {
           const Icon = item.icon;
@@ -3201,6 +3202,7 @@ export default function WholesalerDashboard() {
     retailers: "Retailers",
     salesmen: "Salesmen",
     credit: "Credit Management",
+    account: "My Account",
   };
 
   const renderContent = () => {
@@ -3217,6 +3219,8 @@ export default function WholesalerDashboard() {
         return <SalesmenTab />;
       case "credit":
         return <CreditTab />;
+      case "account":
+        return <AccountProfile />;
       default:
         return <DashboardTab />;
     }
