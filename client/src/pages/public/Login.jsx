@@ -133,7 +133,7 @@ export default function LoginPage() {
             <div className="form-group">
               <div className="label-row">
                 <label>Password</label>
-                <a href="#" className="forgot-link">Forgot password?</a>
+                <Link to="/forgot-password" className="forgot-link">Forgot password?</Link>
               </div>
               <div style={{ position: 'relative' }}>
                 <input
@@ -159,6 +159,11 @@ export default function LoginPage() {
                 : `Sign in as ${roles.find(r => r.key === selectedRole)?.label}`
               }
             </button>
+            <div style={{ textAlign: 'center', marginTop: 12, fontSize: '0.82rem' }}>
+               <Link to="/forgot-password" style={{ color: 'var(--blue)', fontWeight: 600 }}>
+               Forgot password?
+               </Link>
+            </div>
           </form>
 
           <p className="auth-switch">

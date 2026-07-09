@@ -46,8 +46,8 @@ const userSchema = new mongoose.Schema(
 
     // ── Profile Image ─────────────────────────
     profileImage: {
-      url:      { type: String },
-      publicId: { type: String },
+      url:      { type: String, default: '' },
+      publicId: { type: String, default: '' },
     },
 
     // ── Refresh Tokens ────────────────────────
@@ -55,6 +55,18 @@ const userSchema = new mongoose.Schema(
 
     // ── Timestamps ────────────────────────────
     lastLogin: { type: Date },
+
+    resetOtp: { type: String },
+    resetOtpExpiry: { type: Date },
+    addresses: [{
+      label:     { type: String, trim: true },
+      line1:     { type: String, trim: true },
+      line2:     { type: String, trim: true },
+      city:      { type: String, trim: true },
+      state:     { type: String, trim: true },
+      pincode:   { type: String, trim: true },
+      isDefault: { type: Boolean, default: false },
+    }],
   },
   { timestamps: true }
 )

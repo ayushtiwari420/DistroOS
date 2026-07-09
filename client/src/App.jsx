@@ -10,6 +10,7 @@ import WholesalerDashboard from './pages/dashboard/wholesaler/WholesalerDashboar
 import RetailerDashboard   from './pages/dashboard/retailer/RetailerDashboard'
 import SalesmanDashboard   from './pages/dashboard/salesman/SalesmanDashboard'
 import AdminDashboard      from './pages/dashboard/admin/AdminDashboard'
+import ForgotPassword from './pages/public/ForgotPassword'
 
 function App() {
   return (
@@ -21,6 +22,7 @@ function App() {
           <Route path="/"         element={<LandingPage />} />
           <Route path="/login"    element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
 
           {/* ── Wholesaler — all sub-routes handled internally by dashboard ── */}
           <Route path="/dashboard/wholesaler/*" element={

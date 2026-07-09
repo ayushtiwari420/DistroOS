@@ -7,6 +7,7 @@ import {
   setRefreshCookie,
   clearRefreshCookie,
 } from '../utils/token.utils.js'
+import { sendOtpEmail } from '../utils/email.utils.js'
 
 // ── Helper: send validation errors ──
 const sendValidationErrors = (req, res) => {
@@ -290,4 +291,179 @@ export const changePassword = async (req, res, next) => {
   } catch (err) {
     next(err)
   }
+}
+
+// ── Helper: generate 6-digit OTP ──
+const generateOtp = () => Math.floor(100000 + Math.random() * 900000).toString()
+
+// ─────────────────────────────────────────────────────────────
+// POST /api/auth/forgot-password
+// Step 1 — Send OTP to email
+// ─────────────────────────────────────────────────────────────
+export const forgotPassword = async (req, res, next) => {
+  try {
+    const email = String(req.body.email || '').trim().toLowerCase()
+    if (!email) return res.status(400).json({ success: false, message: 'Email is required.' })
+
+    const user = await User.findOne({ email })
+    if (!user) return res.status(404).json({ success: false, message: 'No account found with this email.' })
+
+    const otp    = generateOtp()
+    const expiry = new Date(Date.now() + 10 * 60 * 1000) // 10 minutes
+
+    user.resetOtp       = otp
+    user.resetOtpExpiry = expiry
+    await user.save({ validateBeforeSave: false })
+
+    const mailInfo = await sendOtpEmail(user.email, otp, user.name)
+    console.log(`[MAIL] Password reset OTP accepted for ${user.email}: ${mailInfo.messageId || 'accepted'}`)
+
+    return res.status(200).json({
+      success: true,
+      message: `OTP sent to ${email}. Valid for 10 minutes.`,
+    })
+  } catch (err) {
+    next(err)
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// POST /api/auth/verify-otp
+// Step 2 — Verify OTP
+// ─────────────────────────────────────────────────────────────
+export const verifyOtp = async (req, res, next) => {
+  try {
+    const email = String(req.body.email || '').trim().toLowerCase()
+    const otp = String(req.body.otp || '').trim()
+    if (!email || !otp) return res.status(400).json({ success: false, message: 'Email and OTP are required.' })
+
+    const user = await User.findOne({ email })
+    if (!user) return res.status(404).json({ success: false, message: 'No account found with this email.' })
+
+    if (!user.resetOtp || !user.resetOtpExpiry) {
+      return res.status(400).json({ success: false, message: 'No OTP requested. Please request a new one.' })
+    }
+
+    if (new Date() > user.resetOtpExpiry) {
+      user.resetOtp       = undefined
+      user.resetOtpExpiry = undefined
+      await user.save({ validateBeforeSave: false })
+      return res.status(400).json({ success: false, message: 'OTP has expired. Please request a new one.' })
+    }
+
+    if (user.resetOtp !== otp) {
+      return res.status(400).json({ success: false, message: 'Invalid OTP. Please try again.' })
+    }
+
+    // OTP is valid — give a short-lived reset token (just mark in DB)
+    user.resetOtp = 'VERIFIED'
+    await user.save({ validateBeforeSave: false })
+
+    return res.status(200).json({ success: true, message: 'OTP verified successfully.' })
+  } catch (err) {
+    next(err)
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// POST /api/auth/reset-password
+// Step 3 — Set new password
+// ─────────────────────────────────────────────────────────────
+export const resetPassword = async (req, res, next) => {
+  try {
+    const email = String(req.body.email || '').trim().toLowerCase()
+    const { newPassword } = req.body
+
+    if (!email || !newPassword) {
+      return res.status(400).json({ success: false, message: 'Email and new password are required.' })
+    }
+
+    if (newPassword.length < 8) {
+      return res.status(400).json({ success: false, message: 'Password must be at least 8 characters.' })
+    }
+
+    const user = await User.findOne({ email })
+    if (!user) return res.status(404).json({ success: false, message: 'No account found.' })
+
+    if (user.resetOtp !== 'VERIFIED') {
+      return res.status(400).json({ success: false, message: 'Please verify your OTP first.' })
+    }
+
+    // Set new password + clear OTP fields
+    user.password       = newPassword
+    user.resetOtp       = undefined
+    user.resetOtpExpiry = undefined
+    await user.save()
+
+    return res.status(200).json({ success: true, message: 'Password reset successfully. You can now log in.' })
+  } catch (err) {
+    next(err)
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// ADDRESS MANAGEMENT
+// ─────────────────────────────────────────────────────────────
+
+// GET /api/auth/addresses
+export const getAddresses = async (req, res, next) => {
+  try {
+    const user = await User.findById(req.user.id)
+    return res.status(200).json({ success: true, addresses: user.addresses || [] })
+  } catch (err) { next(err) }
+}
+
+// POST /api/auth/addresses
+export const addAddress = async (req, res, next) => {
+  try {
+    const { label, line1, line2, city, state, pincode, isDefault } = req.body
+    const user = await User.findById(req.user.id)
+
+    if (isDefault) {
+      user.addresses.forEach(a => { a.isDefault = false })
+    }
+
+    user.addresses.push({ label, line1, line2, city, state, pincode, isDefault: isDefault || user.addresses.length === 0 })
+    await user.save({ validateBeforeSave: false })
+
+    return res.status(201).json({ success: true, message: 'Address added.', addresses: user.addresses })
+  } catch (err) { next(err) }
+}
+
+// PUT /api/auth/addresses/:addressId
+export const updateAddress = async (req, res, next) => {
+  try {
+    const user    = await User.findById(req.user.id)
+    const address = user.addresses.id(req.params.addressId)
+    if (!address) return res.status(404).json({ success: false, message: 'Address not found.' })
+
+    if (req.body.isDefault) {
+      user.addresses.forEach(a => { a.isDefault = false })
+    }
+
+    Object.assign(address, req.body)
+    await user.save({ validateBeforeSave: false })
+
+    return res.status(200).json({ success: true, message: 'Address updated.', addresses: user.addresses })
+  } catch (err) { next(err) }
+}
+
+// DELETE /api/auth/addresses/:addressId
+export const deleteAddress = async (req, res, next) => {
+  try {
+    const user = await User.findById(req.user.id)
+    user.addresses = user.addresses.filter(a => a._id.toString() !== req.params.addressId)
+    await user.save({ validateBeforeSave: false })
+    return res.status(200).json({ success: true, message: 'Address removed.', addresses: user.addresses })
+  } catch (err) { next(err) }
+}
+
+// PATCH /api/auth/addresses/:addressId/default
+export const setDefaultAddress = async (req, res, next) => {
+  try {
+    const user = await User.findById(req.user.id)
+    user.addresses.forEach(a => { a.isDefault = a._id.toString() === req.params.addressId })
+    await user.save({ validateBeforeSave: false })
+    return res.status(200).json({ success: true, message: 'Default address updated.', addresses: user.addresses })
+  } catch (err) { next(err) }
 }
