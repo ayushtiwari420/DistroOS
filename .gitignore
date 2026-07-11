@@ -1,0 +1,5 @@
+.env
+.distroos-ai/logs/
+.distroos-ai/reports/
+__pycache__/
+*.pyc
