@@ -8,38 +8,34 @@ import {
   clearRefreshCookie,
 } from '../utils/token.utils.js'
 import { sendOtpEmail } from '../utils/email.utils.js'
+import { ApiError, StatusCode } from '../utils/apiError.utils.js'
 
 // ── Helper: send validation errors ──
-const sendValidationErrors = (req, res) => {
+const throwValidationErrors = (req) => {
   const errors = validationResult(req)
   if (!errors.isEmpty()) {
-    return res.status(422).json({ success: false, errors: errors.array() })
+    throw new ApiError(StatusCode.UNPROCESSABLE_ENTITY, 'Validation failed.', errors.array())
   }
-  return null
 }
 
 // ─────────────────────────────────────────────────────────────
 // POST /api/auth/register
 // ─────────────────────────────────────────────────────────────
 export const register = async (req, res, next) => {
-  console.log("TYPE OF NEXT:", typeof next);
   try {
-    const err = sendValidationErrors(req, res)
-    if (err) return
+    throwValidationErrors(req)
 
     const { name, email, password, role, businessName, city, phone } = req.body
 
     // Block admin self-registration
     if (role === 'admin') {
-      return res.status(403).json({ success: false, message: 'Admin accounts cannot be self-registered.' })
+      throw new ApiError(StatusCode.FORBIDDEN, 'Admin accounts cannot be self-registered.')
     }
 
     // Check duplicate email
     const existing = await User.findOne({ email })
-    console.log("EMAIL:", email)
-    console.log("EXISTING USER:", existing)
     if (existing) {
-      return res.status(409).json({ success: false, message: 'An account with this email already exists.' })
+      throw new ApiError(StatusCode.CONFLICT, 'An account with this email already exists.')
     }
 
     // Create user
@@ -75,12 +71,7 @@ export const register = async (req, res, next) => {
       user,
     })
   } catch (err) {
-    console.error("REGISTER ERROR STACK:");
-    console.error(err.stack);
-    return res.status(500).json({
-      success: false,
-      message: err.message,
-    });
+    next(err)
   }
 }
 
@@ -89,30 +80,29 @@ export const register = async (req, res, next) => {
 // ─────────────────────────────────────────────────────────────
 export const login = async (req, res, next) => {
   try {
-    const err = sendValidationErrors(req, res)
-    if (err) return
+    throwValidationErrors(req)
 
     const { email, password } = req.body
 
     // Find user + include password
     const user = await User.findOne({ email }).select('+password +refreshTokens')
     if (!user) {
-      return res.status(401).json({ success: false, message: 'Invalid email or password.' })
+      throw new ApiError(StatusCode.UNAUTHORIZED, 'Invalid email or password.')
     }
 
     // Check password
     const isMatch = await user.comparePassword(password)
     if (!isMatch) {
-      return res.status(401).json({ success: false, message: 'Invalid email or password.' })
+      throw new ApiError(StatusCode.UNAUTHORIZED, 'Invalid email or password.')
     }
 
     // Check account status
     if (user.status === 'suspended') {
-      return res.status(403).json({ success: false, message: 'Your account has been suspended. Contact support.' })
+      throw new ApiError(StatusCode.FORBIDDEN, 'Your account has been suspended. Contact support.')
     }
 
     if (user.status === 'pending') {
-      return res.status(403).json({ success: false, message: 'Your account is pending approval. You will be notified once approved.' })
+      throw new ApiError(StatusCode.FORBIDDEN, 'Your account is pending approval. You will be notified once approved.')
     }
 
     // Generate tokens
@@ -154,7 +144,7 @@ export const refresh = async (req, res, next) => {
   try {
     const token = req.cookies.refreshToken
     if (!token) {
-      return res.status(401).json({ success: false, message: 'No refresh token.' })
+      throw new ApiError(StatusCode.UNAUTHORIZED, 'No refresh token.')
     }
 
     // Verify token
@@ -163,14 +153,14 @@ export const refresh = async (req, res, next) => {
       decoded = verifyRefreshToken(token)
     } catch {
       clearRefreshCookie(res)
-      return res.status(401).json({ success: false, message: 'Invalid or expired refresh token.' })
+      throw new ApiError(StatusCode.UNAUTHORIZED, 'Invalid or expired refresh token.')
     }
 
     // Find user and check token exists in DB
     const user = await User.findById(decoded.id).select('+refreshTokens')
     if (!user || !user.refreshTokens.includes(token)) {
       clearRefreshCookie(res)
-      return res.status(401).json({ success: false, message: 'Refresh token reuse detected. Please login again.' })
+      throw new ApiError(StatusCode.UNAUTHORIZED, 'Refresh token reuse detected. Please login again.')
     }
 
     // Rotate tokens
@@ -232,7 +222,7 @@ export const getMe = async (req, res, next) => {
   try {
     const user = await User.findById(req.user.id)
     if (!user) {
-      return res.status(404).json({ success: false, message: 'User not found.' })
+      throw new ApiError(StatusCode.NOT_FOUND, 'User not found.')
     }
     return res.status(200).json({ success: true, user })
   } catch (err) {
@@ -247,7 +237,7 @@ export const getMe = async (req, res, next) => {
 export const updateProfile = async (req, res, next) => {
   try {
     const user = await User.findById(req.user.id)
-    if (!user) return res.status(404).json({ success: false, message: 'User not found.' })
+    if (!user) throw new ApiError(StatusCode.NOT_FOUND, 'User not found.')
 
     const fields = ['name', 'phone', 'city', 'businessName']
     fields.forEach(f => { if (req.body[f] !== undefined) user[f] = req.body[f] })
@@ -275,14 +265,14 @@ export const changePassword = async (req, res, next) => {
     const { currentPassword, newPassword } = req.body
 
     if (!currentPassword || !newPassword) {
-      return res.status(400).json({ success: false, message: 'Both current and new password are required.' })
+      throw new ApiError(StatusCode.BAD_REQUEST, 'Both current and new password are required.')
     }
 
     const user = await User.findById(req.user.id).select('+password')
-    if (!user) return res.status(404).json({ success: false, message: 'User not found.' })
+    if (!user) throw new ApiError(StatusCode.NOT_FOUND, 'User not found.')
 
     const isMatch = await user.comparePassword(currentPassword)
-    if (!isMatch) return res.status(401).json({ success: false, message: 'Current password is incorrect.' })
+    if (!isMatch) throw new ApiError(StatusCode.UNAUTHORIZED, 'Current password is incorrect.')
 
     user.password = newPassword
     await user.save()
@@ -303,10 +293,10 @@ const generateOtp = () => Math.floor(100000 + Math.random() * 900000).toString()
 export const forgotPassword = async (req, res, next) => {
   try {
     const email = String(req.body.email || '').trim().toLowerCase()
-    if (!email) return res.status(400).json({ success: false, message: 'Email is required.' })
+    if (!email) throw new ApiError(StatusCode.BAD_REQUEST, 'Email is required.')
 
     const user = await User.findOne({ email })
-    if (!user) return res.status(404).json({ success: false, message: 'No account found with this email.' })
+    if (!user) throw new ApiError(StatusCode.NOT_FOUND, 'No account found with this email.')
 
     const otp    = generateOtp()
     const expiry = new Date(Date.now() + 10 * 60 * 1000) // 10 minutes
@@ -335,24 +325,24 @@ export const verifyOtp = async (req, res, next) => {
   try {
     const email = String(req.body.email || '').trim().toLowerCase()
     const otp = String(req.body.otp || '').trim()
-    if (!email || !otp) return res.status(400).json({ success: false, message: 'Email and OTP are required.' })
+    if (!email || !otp) throw new ApiError(StatusCode.BAD_REQUEST, 'Email and OTP are required.')
 
     const user = await User.findOne({ email })
-    if (!user) return res.status(404).json({ success: false, message: 'No account found with this email.' })
+    if (!user) throw new ApiError(StatusCode.NOT_FOUND, 'No account found with this email.')
 
     if (!user.resetOtp || !user.resetOtpExpiry) {
-      return res.status(400).json({ success: false, message: 'No OTP requested. Please request a new one.' })
+      throw new ApiError(StatusCode.BAD_REQUEST, 'No OTP requested. Please request a new one.')
     }
 
     if (new Date() > user.resetOtpExpiry) {
       user.resetOtp       = undefined
       user.resetOtpExpiry = undefined
       await user.save({ validateBeforeSave: false })
-      return res.status(400).json({ success: false, message: 'OTP has expired. Please request a new one.' })
+      throw new ApiError(StatusCode.BAD_REQUEST, 'OTP has expired. Please request a new one.')
     }
 
     if (user.resetOtp !== otp) {
-      return res.status(400).json({ success: false, message: 'Invalid OTP. Please try again.' })
+      throw new ApiError(StatusCode.BAD_REQUEST, 'Invalid OTP. Please try again.')
     }
 
     // OTP is valid — give a short-lived reset token (just mark in DB)
@@ -375,18 +365,18 @@ export const resetPassword = async (req, res, next) => {
     const { newPassword } = req.body
 
     if (!email || !newPassword) {
-      return res.status(400).json({ success: false, message: 'Email and new password are required.' })
+      throw new ApiError(StatusCode.BAD_REQUEST, 'Email and new password are required.')
     }
 
     if (newPassword.length < 8) {
-      return res.status(400).json({ success: false, message: 'Password must be at least 8 characters.' })
+      throw new ApiError(StatusCode.BAD_REQUEST, 'Password must be at least 8 characters.')
     }
 
     const user = await User.findOne({ email })
-    if (!user) return res.status(404).json({ success: false, message: 'No account found.' })
+    if (!user) throw new ApiError(StatusCode.NOT_FOUND, 'No account found.')
 
     if (user.resetOtp !== 'VERIFIED') {
-      return res.status(400).json({ success: false, message: 'Please verify your OTP first.' })
+      throw new ApiError(StatusCode.BAD_REQUEST, 'Please verify your OTP first.')
     }
 
     // Set new password + clear OTP fields
@@ -435,7 +425,7 @@ export const updateAddress = async (req, res, next) => {
   try {
     const user    = await User.findById(req.user.id)
     const address = user.addresses.id(req.params.addressId)
-    if (!address) return res.status(404).json({ success: false, message: 'Address not found.' })
+    if (!address) throw new ApiError(StatusCode.NOT_FOUND, 'Address not found.')
 
     if (req.body.isDefault) {
       user.addresses.forEach(a => { a.isDefault = false })

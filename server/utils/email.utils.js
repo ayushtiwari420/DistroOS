@@ -1,4 +1,5 @@
 import nodemailer from 'nodemailer'
+import { ApiError, StatusCode } from './apiError.utils.js'
 
 let transporter
 
@@ -7,9 +8,10 @@ const getEmailConfig = () => {
   const pass = process.env.EMAIL_PASS?.trim()
 
   if (!user || !pass) {
-    const err = new Error('Email service is not configured. Please set EMAIL_USER and EMAIL_PASS.')
-    err.statusCode = 500
-    throw err
+    throw new ApiError(
+      StatusCode.INTERNAL_SERVER_ERROR,
+      'Email service is not configured. Please set EMAIL_USER and EMAIL_PASS.'
+    )
   }
 
   return { user, pass }
@@ -32,9 +34,7 @@ export const sendOtpEmail = async (toEmail, otp, name) => {
   const { user } = getEmailConfig()
 
   if (!recipient) {
-    const err = new Error('OTP recipient email is required.')
-    err.statusCode = 400
-    throw err
+    throw new ApiError(StatusCode.BAD_REQUEST, 'OTP recipient email is required.')
   }
 
   const text = [
@@ -109,9 +109,7 @@ export const sendOtpEmail = async (toEmail, otp, name) => {
   })
 
   if (Array.isArray(info.accepted) && !info.accepted.includes(recipient)) {
-    const err = new Error('OTP email was not accepted by the mail service.')
-    err.statusCode = 502
-    throw err
+    throw new ApiError(StatusCode.BAD_GATEWAY, 'OTP email was not accepted by the mail service.')
   }
 
   return info

@@ -2,6 +2,7 @@ import Order   from '../models/Order.model.js'
 import Product from '../models/product.model.js'
 import Credit  from '../models/Credit.model.js'
 import User    from '../models/User.model.js'
+import { ApiError, StatusCode } from '../utils/apiError.utils.js'
 
 // ─────────────────────────────────────────────────────────────
 // POST /api/orders
@@ -13,7 +14,7 @@ export const createOrder = async (req, res, next) => {
     const { id: requesterId, role } = req.user
 
     if (!items || items.length === 0) {
-      return res.status(400).json({ success: false, message: 'Order must have at least one item.' })
+      throw new ApiError(StatusCode.BAD_REQUEST, 'Order must have at least one item.')
     }
 
     const normalizedPaymentType = ['cash', 'credit', 'upi'].includes(paymentType) ? paymentType : 'cash'
@@ -22,15 +23,15 @@ export const createOrder = async (req, res, next) => {
     let wholesalerIdFinal = role === 'wholesaler' ? requesterId : req.user.wholesaler
 
     if (role === 'salesman') {
-      if (!retailerId) return res.status(400).json({ success: false, message: 'retailerId is required for salesman orders.' })
+      if (!retailerId) throw new ApiError(StatusCode.BAD_REQUEST, 'retailerId is required for salesman orders.')
     }
 
     if (role === 'wholesaler' && !retailerId) {
-      return res.status(400).json({ success: false, message: 'retailerId is required for wholesaler-created orders.' })
+      throw new ApiError(StatusCode.BAD_REQUEST, 'retailerId is required for wholesaler-created orders.')
     }
 
     if (!wholesalerIdFinal) {
-      return res.status(403).json({ success: false, message: 'Retailer is not linked to a wholesaler yet.' })
+      throw new ApiError(StatusCode.FORBIDDEN, 'Retailer is not linked to a wholesaler yet.')
     }
 
     const retailer = await User.findOne({
@@ -41,7 +42,7 @@ export const createOrder = async (req, res, next) => {
     }).select('_id')
 
     if (!retailer) {
-      return res.status(403).json({ success: false, message: 'Retailer is not linked to this wholesaler.' })
+      throw new ApiError(StatusCode.FORBIDDEN, 'Retailer is not linked to this wholesaler.')
     }
 
     // Validate products and calculate totals
@@ -51,15 +52,15 @@ export const createOrder = async (req, res, next) => {
     for (const item of items) {
       const quantity = Number(item.quantity)
       if (!Number.isFinite(quantity) || quantity < 1) {
-        return res.status(400).json({ success: false, message: 'Each order item must have a valid quantity.' })
+        throw new ApiError(StatusCode.BAD_REQUEST, 'Each order item must have a valid quantity.')
       }
 
       const product = await Product.findOne({ _id: item.productId, wholesaler: wholesalerIdFinal, isActive: true })
       if (!product) {
-        return res.status(404).json({ success: false, message: `Product ${item.productId} not found.` })
+        throw new ApiError(StatusCode.NOT_FOUND, `Product ${item.productId} not found.`)
       }
       if (product.stock < quantity) {
-        return res.status(400).json({ success: false, message: `Insufficient stock for ${product.name}. Available: ${product.stock}` })
+        throw new ApiError(StatusCode.BAD_REQUEST, `Insufficient stock for ${product.name}. Available: ${product.stock}`)
       }
 
       const totalPrice = product.price * quantity
@@ -78,18 +79,18 @@ export const createOrder = async (req, res, next) => {
     if (normalizedPaymentType === 'credit') {
       creditAccount = await Credit.findOne({ retailer: retailerId, wholesaler: wholesalerIdFinal })
       if (!creditAccount) {
-        return res.status(400).json({ success: false, message: 'Credit account not found for this retailer.' })
+        throw new ApiError(StatusCode.BAD_REQUEST, 'Credit account not found for this retailer.')
       }
       if (creditAccount.status === 'blocked') {
-        return res.status(400).json({ success: false, message: 'This retailer credit account is blocked.' })
+        throw new ApiError(StatusCode.BAD_REQUEST, 'This retailer credit account is blocked.')
       }
 
       const newDue = creditAccount.currentDue + totalAmount
       if (creditAccount.creditLimit > 0 && newDue > creditAccount.creditLimit) {
-        return res.status(400).json({
-          success: false,
-          message: `Credit limit exceeded. Limit: ₹${creditAccount.creditLimit}, Current due: ₹${creditAccount.currentDue}`,
-        })
+        throw new ApiError(
+          StatusCode.BAD_REQUEST,
+          'Credit limit exceeded. Limit: ' + creditAccount.creditLimit + ', Current due: ' + creditAccount.currentDue
+        )
       }
     }
 
@@ -172,7 +173,7 @@ export const getOrder = async (req, res, next) => {
       .populate('wholesaler', 'name businessName')
       .populate('items.product', 'name unit category')
 
-    if (!order) return res.status(404).json({ success: false, message: 'Order not found.' })
+    if (!order) throw new ApiError(StatusCode.NOT_FOUND, 'Order not found.')
 
     // Access control
     const { id, role } = req.user
@@ -182,7 +183,7 @@ export const getOrder = async (req, res, next) => {
       order.retailer._id.toString()   === id ||
       (order.salesman && order.salesman._id.toString() === id)
 
-    if (!allowed) return res.status(403).json({ success: false, message: 'Access denied.' })
+    if (!allowed) throw new ApiError(StatusCode.FORBIDDEN, 'Access denied.')
 
     return res.status(200).json({ success: true, order })
   } catch (err) {
@@ -201,15 +202,15 @@ export const updateOrderStatus = async (req, res, next) => {
     const { id, role } = req.user
 
     const order = await Order.findById(req.params.id)
-    if (!order) return res.status(404).json({ success: false, message: 'Order not found.' })
+    if (!order) throw new ApiError(StatusCode.NOT_FOUND, 'Order not found.')
 
     // Only wholesaler or admin can change status
     if (role !== 'wholesaler' && role !== 'admin') {
-      return res.status(403).json({ success: false, message: 'Only wholesalers can update order status.' })
+      throw new ApiError(StatusCode.FORBIDDEN, 'Only wholesalers can update order status.')
     }
 
     if (role === 'wholesaler' && order.wholesaler.toString() !== id) {
-      return res.status(403).json({ success: false, message: 'Access denied.' })
+      throw new ApiError(StatusCode.FORBIDDEN, 'Access denied.')
     }
 
     const validTransitions = {
@@ -221,10 +222,7 @@ export const updateOrderStatus = async (req, res, next) => {
     const previousStatus = order.status
 
     if (!validTransitions[previousStatus]?.includes(status)) {
-      return res.status(400).json({
-        success: false,
-        message: `Cannot move order from ${previousStatus} to ${status}.`,
-      })
+      throw new ApiError(StatusCode.BAD_REQUEST, `Cannot move order from ${previousStatus} to ${status}.`)
     }
 
     // Update fields

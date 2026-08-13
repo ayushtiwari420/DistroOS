@@ -1,5 +1,6 @@
 import Credit from '../models/Credit.model.js'
 import User   from '../models/User.model.js'
+import { ApiError, StatusCode } from '../utils/apiError.utils.js'
 
 // ─────────────────────────────────────────────────────────────
 // GET /api/credit
@@ -38,7 +39,7 @@ export const getRetailerCredit = async (req, res, next) => {
       wholesaler: req.user.id,
     }).populate('retailer', 'name businessName phone')
 
-    if (!credit) return res.status(404).json({ success: false, message: 'Credit record not found.' })
+    if (!credit) throw new ApiError(StatusCode.NOT_FOUND, 'Credit record not found.')
 
     return res.status(200).json({ success: true, credit })
   } catch (err) {
@@ -58,14 +59,14 @@ export const debitCredit = async (req, res, next) => {
       retailer:   req.params.retailerId,
       wholesaler: req.user.id,
     })
-    if (!credit) return res.status(404).json({ success: false, message: 'Credit record not found.' })
+    if (!credit) throw new ApiError(StatusCode.NOT_FOUND, 'Credit record not found.')
 
     const newDue = credit.currentDue + amount
     if (credit.creditLimit > 0 && newDue > credit.creditLimit) {
-      return res.status(400).json({
-        success: false,
-        message: `Credit limit exceeded. Limit: ₹${credit.creditLimit}, Current due: ₹${credit.currentDue}`,
-      })
+      throw new ApiError(
+        StatusCode.BAD_REQUEST,
+        `Credit limit exceeded. Limit: ₹${credit.creditLimit}, Current due: ₹${credit.currentDue}`
+      )
     }
 
     credit.currentDue = newDue
@@ -91,13 +92,13 @@ export const repayCredit = async (req, res, next) => {
       retailer:   req.params.retailerId,
       wholesaler: req.user.id,
     })
-    if (!credit) return res.status(404).json({ success: false, message: 'Credit record not found.' })
+    if (!credit) throw new ApiError(StatusCode.NOT_FOUND, 'Credit record not found.')
 
     if (amount > credit.currentDue) {
-      return res.status(400).json({
-        success: false,
-        message: `Repayment ₹${amount} exceeds outstanding due ₹${credit.currentDue}.`,
-      })
+      throw new ApiError(
+        StatusCode.BAD_REQUEST,
+        `Repayment ₹${amount} exceeds outstanding due ₹${credit.currentDue}.`
+      )
     }
 
     credit.currentDue      -= amount
@@ -125,7 +126,7 @@ export const updateCreditLimit = async (req, res, next) => {
       { creditLimit },
       { new: true }
     )
-    if (!credit) return res.status(404).json({ success: false, message: 'Credit record not found.' })
+    if (!credit) throw new ApiError(StatusCode.NOT_FOUND, 'Credit record not found.')
 
     return res.status(200).json({ success: true, message: 'Credit limit updated.', credit })
   } catch (err) {

@@ -1,5 +1,6 @@
 import { verifyAccessToken } from '../utils/token.utils.js'
 import User                  from '../models/User.model.js'
+import { ApiError, StatusCode } from '../utils/apiError.utils.js'
 
 // ─────────────────────────────────────────────────────────────
 // protect — verifies JWT access token on every request
@@ -9,7 +10,7 @@ export const protect = async (req, res, next) => {
     // Extract token from Authorization header
     const authHeader = req.headers.authorization
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ success: false, message: 'Access denied. No token provided.' })
+      throw new ApiError(StatusCode.UNAUTHORIZED, 'Access denied. No token provided.')
     }
 
     const token = authHeader.split(' ')[1]
@@ -22,16 +23,16 @@ export const protect = async (req, res, next) => {
       const message = err.name === 'TokenExpiredError'
         ? 'Access token expired.'
         : 'Invalid access token.'
-      return res.status(401).json({ success: false, message })
+      throw new ApiError(StatusCode.UNAUTHORIZED, message)
     }
 
     const user = await User.findById(decoded.id).select('role wholesaler status')
     if (!user) {
-      return res.status(401).json({ success: false, message: 'User no longer exists.' })
+      throw new ApiError(StatusCode.UNAUTHORIZED, 'User no longer exists.')
     }
 
     if (user.status === 'suspended') {
-      return res.status(403).json({ success: false, message: 'Your account has been suspended.' })
+      throw new ApiError(StatusCode.FORBIDDEN, 'Your account has been suspended.')
     }
 
     // Attach the latest account state so retailer-wholesaler links work immediately.
@@ -53,10 +54,10 @@ export const protect = async (req, res, next) => {
 export const authorize = (...roles) => {
   return (req, res, next) => {
     if (!roles.includes(req.user.role)) {
-      return res.status(403).json({
-        success: false,
-        message: `Access denied. Required role: ${roles.join(' or ')}.`,
-      })
+      return next(new ApiError(
+        StatusCode.FORBIDDEN,
+        `Access denied. Required role: ${roles.join(' or ')}.`
+      ))
     }
     next()
   }

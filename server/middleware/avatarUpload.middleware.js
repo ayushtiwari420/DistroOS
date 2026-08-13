@@ -1,6 +1,7 @@
 import multer from 'multer'
 import { CloudinaryStorage } from 'multer-storage-cloudinary'
 import cloudinary from '../config/cloudinary.js'
+import { ApiError, StatusCode } from '../utils/apiError.utils.js'
 
 // ── Dedicated avatar storage — stored under distroos/avatars ──
 const avatarStorage = new CloudinaryStorage({
@@ -20,7 +21,7 @@ const avatarUpload = multer({
     if (allowed.includes(file.mimetype)) {
       cb(null, true)
     } else {
-      cb(new Error('Only JPG, JPEG, and PNG files are allowed.'), false)
+      cb(new ApiError(StatusCode.BAD_REQUEST, 'Only JPG, JPEG, and PNG files are allowed.'), false)
     }
   },
 })

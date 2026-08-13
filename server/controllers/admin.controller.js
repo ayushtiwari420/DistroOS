@@ -1,5 +1,6 @@
 import User  from '../models/User.model.js'
 import Order from '../models/Order.model.js'
+import { ApiError, StatusCode } from '../utils/apiError.utils.js'
 
 // ─────────────────────────────────────────────────────────────
 // GET /api/admin/wholesalers
@@ -40,7 +41,7 @@ export const updateWholesalerStatus = async (req, res, next) => {
   try {
     const { status } = req.body
     if (!['active', 'suspended', 'pending'].includes(status)) {
-      return res.status(400).json({ success: false, message: 'Invalid status.' })
+      throw new ApiError(StatusCode.BAD_REQUEST, 'Invalid status.')
     }
 
     const wholesaler = await User.findOneAndUpdate(
@@ -48,7 +49,7 @@ export const updateWholesalerStatus = async (req, res, next) => {
       { status },
       { new: true }
     )
-    if (!wholesaler) return res.status(404).json({ success: false, message: 'Wholesaler not found.' })
+    if (!wholesaler) throw new ApiError(StatusCode.NOT_FOUND, 'Wholesaler not found.')
 
     return res.status(200).json({ success: true, message: `Wholesaler ${status}.`, wholesaler })
   } catch (err) {

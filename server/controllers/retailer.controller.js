@@ -1,6 +1,7 @@
 import User   from '../models/User.model.js'
 import Credit from '../models/Credit.model.js'
 import Order  from '../models/Order.model.js'
+import { ApiError, StatusCode } from '../utils/apiError.utils.js'
 
 // ─────────────────────────────────────────────────────────────
 // POST /api/retailers/link
@@ -14,26 +15,17 @@ export const linkRetailer = async (req, res, next) => {
     // Find the retailer by email
     const retailer = await User.findOne({ email, role: 'retailer' })
     if (!retailer) {
-      return res.status(404).json({
-        success: false,
-        message: 'No retailer account found with this email. Ask them to register first.',
-      })
+      throw new ApiError(StatusCode.NOT_FOUND, 'No retailer account found with this email. Ask them to register first.')
     }
 
     // Check if already linked to THIS wholesaler
     if (retailer.wholesaler?.toString() === wholesalerId) {
-      return res.status(409).json({
-        success: false,
-        message: 'This retailer is already linked to your account.',
-      })
+      throw new ApiError(StatusCode.CONFLICT, 'This retailer is already linked to your account.')
     }
 
     // Check if linked to a DIFFERENT wholesaler
     if (retailer.wholesaler && retailer.wholesaler.toString() !== wholesalerId) {
-      return res.status(409).json({
-        success: false,
-        message: 'This retailer is already linked to another wholesaler.',
-      })
+      throw new ApiError(StatusCode.CONFLICT, 'This retailer is already linked to another wholesaler.')
     }
 
     // Link retailer to this wholesaler
@@ -72,10 +64,7 @@ export const searchRetailer = async (req, res, next) => {
 
     const retailer = await User.findOne({ email, role: 'retailer' })
     if (!retailer) {
-      return res.status(404).json({
-        success: false,
-        message: 'No retailer found with this email.',
-      })
+      throw new ApiError(StatusCode.NOT_FOUND, 'No retailer found with this email.')
     }
 
     // Check link status
@@ -110,10 +99,7 @@ export const createRetailer = async (req, res, next) => {
 
     const existing = await User.findOne({ email })
     if (existing) {
-      return res.status(409).json({
-        success: false,
-        message: 'An account with this email already exists. Use "Link Retailer" instead to connect them.',
-      })
+      throw new ApiError(StatusCode.CONFLICT, 'An account with this email already exists. Use "Link Retailer" instead to connect them.')
     }
 
     const retailer = await User.create({
@@ -184,7 +170,7 @@ export const getRetailers = async (req, res, next) => {
 export const getRetailer = async (req, res, next) => {
   try {
     const retailer = await User.findOne({ _id: req.params.id, role: 'retailer' })
-    if (!retailer) return res.status(404).json({ success: false, message: 'Retailer not found.' })
+    if (!retailer) throw new ApiError(StatusCode.NOT_FOUND, 'Retailer not found.')
 
     const credit       = await Credit.findOne({ retailer: retailer._id })
     const recentOrders = await Order.find({ retailer: retailer._id }).sort({ createdAt: -1 }).limit(5)
@@ -204,7 +190,7 @@ export const getRetailer = async (req, res, next) => {
 export const updateRetailer = async (req, res, next) => {
   try {
     const retailer = await User.findOne({ _id: req.params.id, role: 'retailer', wholesaler: req.user.id })
-    if (!retailer) return res.status(404).json({ success: false, message: 'Retailer not found.' })
+    if (!retailer) throw new ApiError(StatusCode.NOT_FOUND, 'Retailer not found.')
 
     const fields = ['name', 'phone', 'businessName', 'city', 'status']
     fields.forEach(f => { if (req.body[f] !== undefined) retailer[f] = req.body[f] })
@@ -230,7 +216,7 @@ export const updateRetailer = async (req, res, next) => {
 export const deleteRetailer = async (req, res, next) => {
   try {
     const retailer = await User.findOne({ _id: req.params.id, role: 'retailer', wholesaler: req.user.id })
-    if (!retailer) return res.status(404).json({ success: false, message: 'Retailer not found.' })
+    if (!retailer) throw new ApiError(StatusCode.NOT_FOUND, 'Retailer not found.')
 
     // Unlink instead of delete — retailer account still exists
     retailer.wholesaler = null
