@@ -1,5 +1,6 @@
 import User       from '../models/User.model.js'
 import cloudinary  from '../config/cloudinary.js'
+import { ApiError, StatusCode } from '../utils/apiError.utils.js'
 
 // ─────────────────────────────────────────────────────────────
 // GET /api/profile
@@ -10,7 +11,7 @@ import cloudinary  from '../config/cloudinary.js'
 export const getProfile = async (req, res, next) => {
   try {
     const user = await User.findById(req.user.id)
-    if (!user) return res.status(404).json({ success: false, message: 'User not found.' })
+    if (!user) throw new ApiError(StatusCode.NOT_FOUND, 'User not found.')
     return res.status(200).json({ success: true, user })
   } catch (err) {
     next(err)
@@ -25,7 +26,7 @@ export const getProfile = async (req, res, next) => {
 export const updateProfile = async (req, res, next) => {
   try {
     const user = await User.findById(req.user.id)
-    if (!user) return res.status(404).json({ success: false, message: 'User not found.' })
+    if (!user) throw new ApiError(StatusCode.NOT_FOUND, 'User not found.')
 
     const { name, phone, city, businessName } = req.body
 
@@ -33,7 +34,7 @@ export const updateProfile = async (req, res, next) => {
     if (name !== undefined) {
       const trimmed = String(name).trim()
       if (trimmed.length < 2 || trimmed.length > 60) {
-        return res.status(422).json({ success: false, message: 'Name must be between 2 and 60 characters.' })
+        throw new ApiError(StatusCode.UNPROCESSABLE_ENTITY, 'Name must be between 2 and 60 characters.')
       }
       user.name = trimmed
     }
@@ -41,7 +42,7 @@ export const updateProfile = async (req, res, next) => {
     if (phone !== undefined) {
       const trimmed = String(phone).trim()
       if (trimmed && !/^[+]?[0-9\s\-]{7,15}$/.test(trimmed)) {
-        return res.status(422).json({ success: false, message: 'Enter a valid phone number.' })
+        throw new ApiError(StatusCode.UNPROCESSABLE_ENTITY, 'Enter a valid phone number.')
       }
       user.phone = trimmed
     }
@@ -49,7 +50,7 @@ export const updateProfile = async (req, res, next) => {
     if (city !== undefined) {
       const trimmed = String(city).trim()
       if (trimmed.length > 60) {
-        return res.status(422).json({ success: false, message: 'City must be under 60 characters.' })
+        throw new ApiError(StatusCode.UNPROCESSABLE_ENTITY, 'City must be under 60 characters.')
       }
       user.city = trimmed
     }
@@ -57,7 +58,7 @@ export const updateProfile = async (req, res, next) => {
     if (businessName !== undefined) {
       const trimmed = String(businessName).trim()
       if (trimmed.length > 100) {
-        return res.status(422).json({ success: false, message: 'Business name must be under 100 characters.' })
+        throw new ApiError(StatusCode.UNPROCESSABLE_ENTITY, 'Business name must be under 100 characters.')
       }
       user.businessName = trimmed
     }
@@ -80,34 +81,34 @@ export const changePassword = async (req, res, next) => {
     const { currentPassword, newPassword, confirmPassword } = req.body
 
     if (!currentPassword || !newPassword || !confirmPassword) {
-      return res.status(400).json({ success: false, message: 'All password fields are required.' })
+      throw new ApiError(StatusCode.BAD_REQUEST, 'All password fields are required.')
     }
 
     if (newPassword !== confirmPassword) {
-      return res.status(422).json({ success: false, message: 'New password and confirmation do not match.' })
+      throw new ApiError(StatusCode.UNPROCESSABLE_ENTITY, 'New password and confirmation do not match.')
     }
 
     // Enforce password strength
     if (newPassword.length < 8) {
-      return res.status(422).json({ success: false, message: 'New password must be at least 8 characters.' })
+      throw new ApiError(StatusCode.UNPROCESSABLE_ENTITY, 'New password must be at least 8 characters.')
     }
     if (!/[A-Z]/.test(newPassword)) {
-      return res.status(422).json({ success: false, message: 'New password must contain at least one uppercase letter.' })
+      throw new ApiError(StatusCode.UNPROCESSABLE_ENTITY, 'New password must contain at least one uppercase letter.')
     }
     if (!/[0-9]/.test(newPassword)) {
-      return res.status(422).json({ success: false, message: 'New password must contain at least one number.' })
+      throw new ApiError(StatusCode.UNPROCESSABLE_ENTITY, 'New password must contain at least one number.')
     }
 
     const user = await User.findById(req.user.id).select('+password')
-    if (!user) return res.status(404).json({ success: false, message: 'User not found.' })
+    if (!user) throw new ApiError(StatusCode.NOT_FOUND, 'User not found.')
 
     const isMatch = await user.comparePassword(currentPassword)
     if (!isMatch) {
-      return res.status(401).json({ success: false, message: 'Current password is incorrect.' })
+      throw new ApiError(StatusCode.UNAUTHORIZED, 'Current password is incorrect.')
     }
 
     if (currentPassword === newPassword) {
-      return res.status(422).json({ success: false, message: 'New password must be different from the current password.' })
+      throw new ApiError(StatusCode.UNPROCESSABLE_ENTITY, 'New password must be different from the current password.')
     }
 
     user.password = newPassword
@@ -128,11 +129,11 @@ export const changePassword = async (req, res, next) => {
 export const uploadAvatar = async (req, res, next) => {
   try {
     if (!req.file) {
-      return res.status(400).json({ success: false, message: 'No image file provided.' })
+      throw new ApiError(StatusCode.BAD_REQUEST, 'No image file provided.')
     }
 
     const user = await User.findById(req.user.id)
-    if (!user) return res.status(404).json({ success: false, message: 'User not found.' })
+    if (!user) throw new ApiError(StatusCode.NOT_FOUND, 'User not found.')
 
     // Delete old avatar from Cloudinary to avoid orphaned assets
     if (user.profileImage?.publicId) {
@@ -163,7 +164,7 @@ export const uploadAvatar = async (req, res, next) => {
 export const deleteAvatar = async (req, res, next) => {
   try {
     const user = await User.findById(req.user.id)
-    if (!user) return res.status(404).json({ success: false, message: 'User not found.' })
+    if (!user) throw new ApiError(StatusCode.NOT_FOUND, 'User not found.')
 
     if (user.profileImage?.publicId) {
       try {

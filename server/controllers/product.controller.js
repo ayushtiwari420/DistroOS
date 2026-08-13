@@ -1,6 +1,7 @@
 import Product from '../models/product.model.js'
 import XLSX from 'xlsx'
 import mongoose from 'mongoose'
+import { ApiError, StatusCode } from '../utils/apiError.utils.js'
 
 // ─────────────────────────────────────────────────────────────
 // POST /api/products
@@ -41,10 +42,7 @@ export const getProducts = async (req, res, next) => {
     if (role === 'wholesaler') filter.wholesaler = id
     if (role === 'retailer' || role === 'salesman') {
       if (!wholesaler) {
-        return res.status(403).json({
-          success: false,
-          message: 'You are not linked to a wholesaler yet.',
-        })
+        throw new ApiError(StatusCode.FORBIDDEN, 'You are not linked to a wholesaler yet.')
       }
       filter.wholesaler = wholesaler
     }
@@ -66,7 +64,7 @@ export const getProducts = async (req, res, next) => {
 export const getProduct = async (req, res, next) => {
   try {
     const product = await Product.findById(req.params.id)
-    if (!product) return res.status(404).json({ success: false, message: 'Product not found.' })
+    if (!product) throw new ApiError(StatusCode.NOT_FOUND, 'Product not found.')
     return res.status(200).json({ success: true, product })
   } catch (err) {
     next(err)
@@ -80,7 +78,7 @@ export const getProduct = async (req, res, next) => {
 export const updateProduct = async (req, res, next) => {
   try {
     const product = await Product.findOne({ _id: req.params.id, wholesaler: req.user.id })
-    if (!product) return res.status(404).json({ success: false, message: 'Product not found.' })
+    if (!product) throw new ApiError(StatusCode.NOT_FOUND, 'Product not found.')
 
     const fields = ['name', 'description', 'category', 'unit', 'price', 'costPrice', 'stock', 'lowStockAt', 'isActive']
     fields.forEach(f => { if (req.body[f] !== undefined) product[f] = req.body[f] })
@@ -104,7 +102,7 @@ export const updateProduct = async (req, res, next) => {
 export const deleteProduct = async (req, res, next) => {
   try {
     const product = await Product.findOne({ _id: req.params.id, wholesaler: req.user.id })
-    if (!product) return res.status(404).json({ success: false, message: 'Product not found.' })
+    if (!product) throw new ApiError(StatusCode.NOT_FOUND, 'Product not found.')
 
     product.isActive = false
     await product.save()
@@ -123,11 +121,11 @@ export const adjustStock = async (req, res, next) => {
   try {
     const { quantity, type } = req.body // type: 'add' | 'subtract'
     const product = await Product.findOne({ _id: req.params.id, wholesaler: req.user.id })
-    if (!product) return res.status(404).json({ success: false, message: 'Product not found.' })
+    if (!product) throw new ApiError(StatusCode.NOT_FOUND, 'Product not found.')
 
     if (type === 'add')      product.stock += quantity
     if (type === 'subtract') {
-      if (product.stock < quantity) return res.status(400).json({ success: false, message: 'Insufficient stock.' })
+      if (product.stock < quantity) throw new ApiError(StatusCode.BAD_REQUEST, 'Insufficient stock.')
       product.stock -= quantity
     }
 
@@ -255,16 +253,16 @@ const findProductForExcelRow = async (row, wholesalerId) => {
 // uploading the products in bulk using excel file
 export const bulkUploadProducts = async (req, res, next) => {
   try {
-    if (!req.file) return res.status(400).json({ success: false, message: 'No file uploaded.' })
+    if (!req.file) throw new ApiError(StatusCode.BAD_REQUEST, 'No file uploaded.')
 
     const workbook = XLSX.read(req.file.buffer, { type: 'buffer' })
     const sheetName = workbook.SheetNames[0]
     const sheet = workbook.Sheets[sheetName]
 
-    if (!sheet) return res.status(400).json({ success: false, message: 'Excel file has no sheets.' })
+    if (!sheet) throw new ApiError(StatusCode.BAD_REQUEST, 'Excel file has no sheets.')
 
     const rows = XLSX.utils.sheet_to_json(sheet, { defval: null })
-    if (rows.length === 0) return res.status(400).json({ success: false, message: 'Excel file is empty.' })
+    if (rows.length === 0) throw new ApiError(StatusCode.BAD_REQUEST, 'Excel file is empty.')
 
     let updated = 0
     let notFound = 0

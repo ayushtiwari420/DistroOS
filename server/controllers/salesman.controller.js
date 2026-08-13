@@ -1,5 +1,6 @@
 import User  from '../models/User.model.js'
 import Order from '../models/Order.model.js'
+import { ApiError, StatusCode } from '../utils/apiError.utils.js'
 
 // ─────────────────────────────────────────────────────────────
 // POST /api/salesmen
@@ -11,7 +12,7 @@ export const createSalesman = async (req, res, next) => {
     const wholesalerId = req.user.id
 
     const existing = await User.findOne({ email })
-    if (existing) return res.status(409).json({ success: false, message: 'A user with this email already exists.' })
+    if (existing) throw new ApiError(StatusCode.CONFLICT, 'A user with this email already exists.')
 
     const salesman = await User.create({
       name, email,
@@ -78,7 +79,7 @@ export const getSalesmen = async (req, res, next) => {
 export const getSalesman = async (req, res, next) => {
   try {
     const salesman = await User.findOne({ _id: req.params.id, role: 'salesman' })
-    if (!salesman) return res.status(404).json({ success: false, message: 'Salesman not found.' })
+    if (!salesman) throw new ApiError(StatusCode.NOT_FOUND, 'Salesman not found.')
 
     const recentOrders = await Order.find({ salesman: salesman._id })
       .populate('retailer', 'name businessName')
@@ -108,7 +109,7 @@ export const getSalesman = async (req, res, next) => {
 export const updateSalesman = async (req, res, next) => {
   try {
     const salesman = await User.findOne({ _id: req.params.id, role: 'salesman', wholesaler: req.user.id })
-    if (!salesman) return res.status(404).json({ success: false, message: 'Salesman not found.' })
+    if (!salesman) throw new ApiError(StatusCode.NOT_FOUND, 'Salesman not found.')
 
     const fields = ['name', 'phone', 'city', 'status', 'businessName']
     fields.forEach(f => { if (req.body[f] !== undefined) salesman[f] = req.body[f] })
@@ -126,7 +127,7 @@ export const updateSalesman = async (req, res, next) => {
 export const deleteSalesman = async (req, res, next) => {
   try {
     const salesman = await User.findOne({ _id: req.params.id, role: 'salesman', wholesaler: req.user.id })
-    if (!salesman) return res.status(404).json({ success: false, message: 'Salesman not found.' })
+    if (!salesman) throw new ApiError(StatusCode.NOT_FOUND, 'Salesman not found.')
 
     salesman.status = 'suspended'
     await salesman.save()
