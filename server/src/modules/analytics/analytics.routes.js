@@ -9,6 +9,7 @@ import {
   getSmartReorderSuggestions,
   getSmartReorderRecommendations,
   calculateCreditTrustScore,
+  getCreditIntelligence,
   getNetworkAggregatedDemand,
 } from './analytics.controller.js'
 import { protect, authorize } from '../../middleware/auth.middleware.js'
@@ -24,6 +25,8 @@ router.get('/products',                      getProductAnalytics)
 router.get('/retailers',                     getRetailerAnalytics)
 router.get('/inventory',                     getInventoryAnalytics)
 router.get('/inventory-intelligence',        getInventoryIntelligence)
+router.get('/credit',                        getCreditIntelligence)
+router.get('/credit-intelligence',           getCreditIntelligence)
 router.get('/retailers/:retailerId/insights', getRetailerInsights)
 router.get('/retailer-360/:retailerId',       getRetailerInsights)
 router.get('/reorder-recommendations',       getSmartReorderRecommendations)

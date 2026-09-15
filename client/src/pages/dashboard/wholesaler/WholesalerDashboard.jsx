@@ -33,6 +33,7 @@ import OrdersTab from "./views/OrdersTab";
 import RetailerDetailView from "./views/RetailerDetailView";
 import SmartReorderTab from "./views/SmartReorderTab";
 import InventoryIntelligenceTab from "./views/InventoryIntelligenceTab";
+import CreditIntelligenceTab from "./views/CreditIntelligenceTab";
 
 
 // ─────────────────────────────────────────────────────────────
@@ -2770,7 +2771,8 @@ export default function WholesalerDashboard() {
     "smart-reorder": "Smart Reorder Recommendations",
     retailers: "Retailers",
     salesmen: "Salesmen",
-    credit: "Credit Management",
+    credit: "Credit Intelligence Platform",
+    "credit-intelligence": "Credit Intelligence Platform",
     account: "My Account",
   };
 
@@ -2791,7 +2793,8 @@ export default function WholesalerDashboard() {
       case "salesmen":
         return <SalesmenTab />;
       case "credit":
-        return <CreditTab />;
+      case "credit-intelligence":
+        return <CreditIntelligenceTab />;
       case "account":
         return <AccountProfile />;
       default:

@@ -1247,3 +1247,197 @@ export const getNetworkAggregatedDemand = async (wholesalerId) => {
     retailerStats,
   }
 }
+
+/**
+ * 6. Credit Intelligence & Account Risk Analytics V1
+ */
+export const getCreditIntelligence = async (wholesalerId, options = {}) => {
+  const { search, status, sort, sortBy = sort || 'outstanding', page = 1, limit = 10 } = options
+  const pageNum = Math.max(1, parseInt(page, 10) || 1)
+  const limitNum = Math.max(1, parseInt(limit, 10) || 10)
+
+  // 1. Fetch all credit accounts for wholesaler
+  const credits = await Credit.find({ wholesaler: wholesalerId })
+    .populate('retailer', 'name businessName phone city email status')
+    .lean()
+
+  let totalCreditExposure = 0
+  let totalOutstanding = 0
+  let totalOverdue = 0
+  let retailersWithCredit = 0
+  let retailersOverdue = 0
+  let highExposureAccounts = 0
+  let sumConsistency = 0
+  let countConsistency = 0
+
+  const allAccounts = []
+
+  for (const c of credits) {
+    if (!c.retailer) continue
+
+    const rObj = c.retailer
+    const creditLimit = Math.max(0, c.creditLimit || 0)
+    const outstanding = Math.max(0, c.currentDue || 0)
+    const availableCredit = Math.max(0, creditLimit - outstanding)
+    const creditUtilization = creditLimit > 0 ? Number(((outstanding / creditLimit) * 100).toFixed(1)) : 0
+
+    const isOverdueStatus = c.status === 'overdue' || c.status === 'blocked'
+    const overdueAmount = isOverdueStatus ? outstanding : 0
+    const overduePercentage = outstanding > 0 ? Number(((overdueAmount / outstanding) * 100).toFixed(1)) : 0
+
+    totalCreditExposure += creditLimit
+    totalOutstanding += outstanding
+    totalOverdue += overdueAmount
+
+    if (creditLimit > 0) retailersWithCredit++
+    if (overdueAmount > 0) retailersOverdue++
+    if (creditUtilization >= 85.0) highExposureAccounts++
+
+    // Payment Behavior Analysis from transactions
+    const txs = Array.isArray(c.transactions) ? c.transactions : []
+    const repayments = txs.filter((t) => t.type === 'credit')
+    const debits = txs.filter((t) => t.type === 'debit')
+
+    const repaymentCount = repayments.length
+    const totalAmountPaid = repayments.reduce((s, t) => s + (t.amount || 0), 0)
+    const averagePaymentAmount = repaymentCount > 0 ? Math.round(totalAmountPaid / repaymentCount) : 0
+    const lastPaymentDate = c.lastPaymentDate || (repayments.length > 0 ? repayments[repayments.length - 1].date : null)
+
+    // Calculate payment delays & on-time repayments (within 15 days of preceding debit)
+    let onTimeCount = 0
+    const delays = []
+
+    for (const rTx of repayments) {
+      const rTime = new Date(rTx.date || rTx.createdAt || Date.now()).getTime()
+      // Find nearest preceding debit
+      const prevDebits = debits.filter((dTx) => new Date(dTx.date || dTx.createdAt || 0).getTime() <= rTime)
+      if (prevDebits.length > 0) {
+        const lastDebitTime = new Date(prevDebits[prevDebits.length - 1].date || prevDebits[prevDebits.length - 1].createdAt).getTime()
+        const delayDays = Math.max(0, Math.round((rTime - lastDebitTime) / (1000 * 60 * 60 * 24)))
+        delays.push(delayDays)
+        if (delayDays <= 15) onTimeCount++
+      } else {
+        onTimeCount++ // No preceding debit timestamp found, treat as on-time
+      }
+    }
+
+    const averagePaymentDelay = delays.length > 0 ? Math.round(delays.reduce((a, b) => a + b, 0) / delays.length) : 0
+
+    // Payment consistency metric: requires at least 2 repayments
+    let paymentConsistency = null
+    if (repaymentCount >= 2) {
+      paymentConsistency = Math.min(100, Math.round((onTimeCount / repaymentCount) * 100))
+      sumConsistency += paymentConsistency
+      countConsistency++
+    }
+
+    // Health Classification Rules
+    let creditHealthStatus = 'INSUFFICIENT_DATA'
+    let explanation = ''
+
+    if (overdueAmount > 0 || isOverdueStatus) {
+      creditHealthStatus = 'OVERDUE'
+      explanation = `Overdue: ₹${overdueAmount.toLocaleString('en-IN')} is currently past due.`
+    } else if (creditUtilization >= 85.0) {
+      creditHealthStatus = 'HIGH_EXPOSURE'
+      explanation = `High Exposure: Outstanding credit (₹${outstanding.toLocaleString('en-IN')}) represents ${creditUtilization}% of assigned limit.`
+    } else if (creditUtilization >= 60.0 || (paymentConsistency !== null && paymentConsistency < 70)) {
+      creditHealthStatus = 'WATCH'
+      explanation = `Watch: Utilization is ${creditUtilization}% ${paymentConsistency !== null ? `with ${paymentConsistency}% payment consistency` : ''}.`
+    } else if (outstanding > 0 || creditLimit > 0) {
+      creditHealthStatus = 'HEALTHY'
+      explanation = `Healthy: Outstanding balance is within normal limits (${creditUtilization}% utilization) with consistent payment behavior.`
+    } else {
+      creditHealthStatus = 'INSUFFICIENT_DATA'
+      explanation = `Insufficient history: Not enough transaction data to calculate a reliable credit assessment.`
+    }
+
+    // Search filter
+    if (search) {
+      const q = search.toLowerCase()
+      const nameMatch = (rObj.name || '').toLowerCase().includes(q) || (rObj.businessName || '').toLowerCase().includes(q)
+      const cityMatch = (rObj.city || '').toLowerCase().includes(q)
+      if (!nameMatch && !cityMatch) continue
+    }
+
+    // Status filter
+    if (status) {
+      const uStatus = status.toUpperCase()
+      if (uStatus !== creditHealthStatus) continue
+    }
+
+    allAccounts.push({
+      retailer: {
+        id: rObj._id,
+        name: rObj.businessName || rObj.name,
+        contactName: rObj.name,
+        phone: rObj.phone || '',
+        city: rObj.city || '',
+        email: rObj.email,
+        status: rObj.status,
+      },
+      creditLimit,
+      outstanding,
+      availableCredit,
+      creditUtilization,
+      overdueAmount,
+      overduePercentage,
+      accountStatus: c.status,
+      paymentBehavior: {
+        repaymentCount,
+        totalAmountPaid,
+        averagePaymentAmount,
+        lastPaymentDate,
+        averagePaymentDelay,
+      },
+      paymentConsistency,
+      creditHealthStatus,
+      explanation,
+    })
+  }
+
+  // 2. Sorting
+  if (sortBy === 'outstanding') {
+    allAccounts.sort((a, b) => b.outstanding - a.outstanding)
+  } else if (sortBy === 'utilization') {
+    allAccounts.sort((a, b) => b.creditUtilization - a.creditUtilization)
+  } else if (sortBy === 'overdue') {
+    allAccounts.sort((a, b) => b.overdueAmount - a.overdueAmount)
+  } else if (sortBy === 'limit') {
+    allAccounts.sort((a, b) => b.creditLimit - a.creditLimit)
+  } else if (sortBy === 'consistency') {
+    allAccounts.sort((a, b) => (b.paymentConsistency || 0) - (a.paymentConsistency || 0))
+  } else if (sortBy === 'name') {
+    allAccounts.sort((a, b) => a.retailer.name.localeCompare(b.retailer.name))
+  }
+
+  const total = allAccounts.length
+  const startIndex = (pageNum - 1) * limitNum
+  const paginatedAccounts = allAccounts.slice(startIndex, startIndex + limitNum)
+  const totalPages = Math.ceil(total / limitNum) || 1
+
+  const averagePaymentConsistency = countConsistency > 0 ? Math.round(sumConsistency / countConsistency) : null
+
+  return {
+    summary: {
+      totalCreditExposure,
+      totalOutstanding,
+      totalOverdue,
+      availableCredit: Math.max(0, totalCreditExposure - totalOutstanding),
+      retailersWithCredit,
+      retailersOverdue,
+      highExposureAccounts,
+      averagePaymentConsistency,
+      totalAccounts: credits.length,
+    },
+    accounts: paginatedAccounts,
+    pagination: {
+      page: pageNum,
+      limit: limitNum,
+      total,
+      totalPages,
+      hasNextPage: pageNum < totalPages,
+      hasPreviousPage: pageNum > 1,
+    },
+  }
+}

@@ -90,6 +90,15 @@ export const calculateCreditTrustScore = async (req, res, next) => {
   }
 }
 
+export const getCreditIntelligence = async (req, res, next) => {
+  try {
+    const data = await analyticsService.getCreditIntelligence(req.user.id, req.query)
+    return res.status(200).json({ success: true, ...data })
+  } catch (err) {
+    next(err)
+  }
+}
+
 export const getNetworkAggregatedDemand = async (req, res, next) => {
   try {
     const demand = await analyticsService.getNetworkAggregatedDemand(req.user.id)
