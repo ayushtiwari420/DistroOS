@@ -24,31 +24,17 @@ import {
 } from "lucide-react";
 import { useAuth } from "../../../context/AuthContext";
 import { getAccessToken } from "../../../context/AuthContext";
+import { apiClient as api } from "../../../api/client";
 import BrandLogo from "../../../components/ui/BrandLogo";
 import AccountProfile from "../../../components/shared/AccountProfile";
+import WholesalerSidebar from "./components/WholesalerSidebar";
+import DashboardOverviewTab from "./views/DashboardOverviewTab";
+import OrdersTab from "./views/OrdersTab";
+import RetailerDetailView from "./views/RetailerDetailView";
+import SmartReorderTab from "./views/SmartReorderTab";
+import InventoryIntelligenceTab from "./views/InventoryIntelligenceTab";
+import CreditIntelligenceTab from "./views/CreditIntelligenceTab";
 
-// ─────────────────────────────────────────────────────────────
-// API HELPER
-// ─────────────────────────────────────────────────────────────
-const BASE = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
-
-const api = async (endpoint, options = {}) => {
-  const token = getAccessToken();
-  const isFormData = options.body instanceof FormData;
-
-  const res = await fetch(`${BASE}${endpoint}`, {
-    ...options,
-    headers: {
-      ...(!isFormData && { "Content-Type": "application/json" }),
-      Authorization: `Bearer ${token}`,
-      ...options.headers,
-    },
-    credentials: "include",
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.message || "Request failed");
-  return data;
-};
 
 // ─────────────────────────────────────────────────────────────
 // SERVICE CALLS
@@ -596,543 +582,9 @@ function Sidebar({ active, setActive, collapsed, setCollapsed }) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// TAB: DASHBOARD
+// MODULAR VIEWS & TABS (IMPORTED FROM ./views/)
 // ─────────────────────────────────────────────────────────────
-function DashboardTab() {
-  const { user } = useAuth();
-  const [stats, setStats] = useState(null);
-  const [orders, setOrders] = useState([]);
-  const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    Promise.all([svc.getOrderStats(), svc.getOrders("?limit=5")])
-      .then(([s, o]) => {
-        setStats(s.stats);
-        setOrders(o.orders);
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
-
-  if (loading) return <Spinner />;
-
-  const cards = [
-    {
-      label: "Total Orders",
-      value: stats?.total || 0,
-      color: "#2563EB",
-      bg: "#EFF4FF",
-    },
-    {
-      label: "Pending",
-      value: stats?.pending || 0,
-      color: "#D97706",
-      bg: "#FFFBEB",
-    },
-    {
-      label: "Monthly Revenue",
-      value: fmt(stats?.monthlyRevenue),
-      color: "#16A34A",
-      bg: "#F0FDF4",
-    },
-    {
-      label: "Total Revenue",
-      value: fmt(stats?.revenue),
-      color: "#7C3AED",
-      bg: "#F5F3FF",
-    },
-  ];
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-      <div>
-        <h2
-          style={{
-            fontFamily: "Plus Jakarta Sans, sans-serif",
-            fontSize: "1.25rem",
-            fontWeight: 800,
-            marginBottom: 3,
-          }}
-        >
-          Welcome back, {user?.name?.split(" ")[0]} 👋
-        </h2>
-        <p style={{ fontSize: "0.875rem", color: "var(--text-muted)" }}>
-          Here's your business overview for today.
-        </p>
-      </div>
-
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-          gap: 14,
-        }}
-      >
-        {cards.map((c) => (
-          <div
-            key={c.label}
-            style={{
-              background: "var(--surface)",
-              border: "1px solid var(--border)",
-              borderRadius: 14,
-              padding: "18px 20px",
-              boxShadow: "var(--shadow-sm)",
-              transition: "all 0.15s",
-              cursor: "default",
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.transform = "translateY(-2px)";
-              e.currentTarget.style.boxShadow = "var(--shadow)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.transform = "translateY(0)";
-              e.currentTarget.style.boxShadow = "var(--shadow-sm)";
-            }}
-          >
-            <div
-              style={{
-                fontSize: "0.75rem",
-                color: "var(--text-muted)",
-                marginBottom: 8,
-              }}
-            >
-              {c.label}
-            </div>
-            <div
-              style={{
-                fontFamily: "Plus Jakarta Sans, sans-serif",
-                fontSize: "1.7rem",
-                fontWeight: 800,
-                color: c.color,
-              }}
-            >
-              {c.value}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div
-        style={{
-          background: "var(--surface)",
-          border: "1px solid var(--border)",
-          borderRadius: 14,
-          overflow: "hidden",
-          boxShadow: "var(--shadow-sm)",
-        }}
-      >
-        <div
-          style={{
-            padding: "16px 20px",
-            borderBottom: "1px solid var(--border)",
-            fontFamily: "Plus Jakarta Sans, sans-serif",
-            fontWeight: 700,
-          }}
-        >
-          Recent Orders
-        </div>
-        {orders.length === 0 ? (
-          <Empty
-            icon="📦"
-            title="No orders yet"
-            sub="Orders placed by your retailers will appear here"
-          />
-        ) : (
-          <div style={{ overflowX: "auto" }}>
-            <table
-              style={{
-                width: "100%",
-                borderCollapse: "collapse",
-                fontSize: "0.83rem",
-              }}
-            >
-              <thead>
-                <tr
-                  style={{
-                    background: "var(--bg)",
-                    borderBottom: "1px solid var(--border)",
-                  }}
-                >
-                  {["Order", "Retailer", "Amount", "Status", "Date"].map(
-                    (h) => (
-                      <th key={h} style={thStyle}>
-                        {h}
-                      </th>
-                    ),
-                  )}
-                </tr>
-              </thead>
-              <tbody>
-                {orders.map((o) => (
-                  <tr
-                    key={o._id}
-                    style={{ borderBottom: "1px solid var(--border)" }}
-                    onMouseEnter={(e) =>
-                      (e.currentTarget.style.background = "var(--bg)")
-                    }
-                    onMouseLeave={(e) =>
-                      (e.currentTarget.style.background = "transparent")
-                    }
-                  >
-                    <td
-                      style={{
-                        ...tdStyle,
-                        fontWeight: 600,
-                        color: "var(--blue)",
-                      }}
-                    >
-                      {o.orderNumber}
-                    </td>
-                    <td style={tdStyle}>
-                      {o.retailer?.businessName || o.retailer?.name || "—"}
-                    </td>
-                    <td style={{ ...tdStyle, fontWeight: 600 }}>
-                      {fmt(o.totalAmount)}
-                    </td>
-                    <td style={tdStyle}>
-                      <Badge status={o.status} />
-                    </td>
-                    <td
-                      style={{
-                        ...tdStyle,
-                        color: "var(--text-muted)",
-                        fontSize: "0.78rem",
-                      }}
-                    >
-                      {new Date(o.createdAt).toLocaleDateString("en-IN")}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────
-// TAB: ORDERS
-// ─────────────────────────────────────────────────────────────
-function OrdersTab() {
-  const [orders, setOrders] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState("all");
-  const [updating, setUpdating] = useState(null);
-  const [error, setError] = useState("");
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError("");
-    try {
-      const data = await svc.getOrders(
-        filter !== "all" ? `?status=${filter}` : "",
-      );
-      setOrders(data.orders);
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setLoading(false);
-    }
-  }, [filter]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  const handleStatus = async (id, status) => {
-    setUpdating(id);
-    try {
-      await svc.updateOrderStatus(id, status);
-      setOrders((prev) =>
-        prev.map((o) => (o._id === id ? { ...o, status } : o)),
-      );
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setUpdating(null);
-    }
-  };
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          flexWrap: "wrap",
-          gap: 10,
-        }}
-      >
-        <h2
-          style={{
-            fontFamily: "Plus Jakarta Sans, sans-serif",
-            fontWeight: 800,
-            fontSize: "1.1rem",
-          }}
-        >
-          Orders
-        </h2>
-        <button
-          onClick={load}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-            padding: "7px 14px",
-            background: "var(--bg)",
-            border: "1px solid var(--border)",
-            borderRadius: 8,
-            cursor: "pointer",
-            fontSize: "0.83rem",
-            color: "var(--text-muted)",
-          }}
-        >
-          <RefreshCw size={14} /> Refresh
-        </button>
-      </div>
-
-      {/* Status filters */}
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-        {[
-          "all",
-          "pending",
-          "approved",
-          "dispatched",
-          "delivered",
-          "cancelled",
-        ].map((t) => (
-          <button
-            key={t}
-            onClick={() => setFilter(t)}
-            style={{
-              padding: "5px 14px",
-              borderRadius: 999,
-              border: "1px solid var(--border)",
-              background: filter === t ? "var(--blue)" : "var(--surface)",
-              color: filter === t ? "#fff" : "var(--text-muted)",
-              fontSize: "0.78rem",
-              fontWeight: 600,
-              cursor: "pointer",
-              textTransform: "capitalize",
-              transition: "all 0.15s",
-            }}
-          >
-            {t}
-          </button>
-        ))}
-      </div>
-
-      <ErrBox msg={error} />
-
-      <div
-        style={{
-          background: "var(--surface)",
-          border: "1px solid var(--border)",
-          borderRadius: 14,
-          overflow: "hidden",
-          boxShadow: "var(--shadow-sm)",
-        }}
-      >
-        {loading ? (
-          <Spinner />
-        ) : orders.length === 0 ? (
-          <Empty
-            icon="📋"
-            title="No orders found"
-            sub="Try a different filter or wait for retailers to place orders"
-          />
-        ) : (
-          <div style={{ overflowX: "auto" }}>
-            <table
-              style={{
-                width: "100%",
-                borderCollapse: "collapse",
-                fontSize: "0.83rem",
-              }}
-            >
-              <thead>
-                <tr
-                  style={{
-                    background: "var(--bg)",
-                    borderBottom: "1px solid var(--border)",
-                  }}
-                >
-                  {[
-                    "Order",
-                    "Retailer",
-                    "Items",
-                    "Amount",
-                    "Payment",
-                    "Status",
-                    "Date",
-                    "Actions",
-                  ].map((h) => (
-                    <th key={h} style={thStyle}>
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {orders.map((o) => (
-                  <tr
-                    key={o._id}
-                    style={{ borderBottom: "1px solid var(--border)" }}
-                    onMouseEnter={(e) =>
-                      (e.currentTarget.style.background = "var(--bg)")
-                    }
-                    onMouseLeave={(e) =>
-                      (e.currentTarget.style.background = "transparent")
-                    }
-                  >
-                    <td
-                      style={{
-                        ...tdStyle,
-                        fontWeight: 600,
-                        color: "var(--blue)",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {o.orderNumber}
-                    </td>
-                    <td style={tdStyle}>
-                      {o.retailer?.businessName || o.retailer?.name || "—"}
-                    </td>
-                    <td style={{ ...tdStyle, color: "var(--text-muted)" }}>
-                      {o.items?.length} item{o.items?.length !== 1 ? "s" : ""}
-                    </td>
-                    <td
-                      style={{
-                        ...tdStyle,
-                        fontWeight: 600,
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {fmt(o.totalAmount)}
-                    </td>
-                    <td
-                      style={{
-                        ...tdStyle,
-                        textTransform: "capitalize",
-                        color: "var(--text-muted)",
-                      }}
-                    >
-                      {o.paymentType}
-                    </td>
-                    <td style={tdStyle}>
-                      <Badge status={o.status} />
-                    </td>
-                    <td
-                      style={{
-                        ...tdStyle,
-                        color: "var(--text-muted)",
-                        fontSize: "0.78rem",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {new Date(o.createdAt).toLocaleDateString("en-IN")}
-                    </td>
-                    <td style={tdStyle}>
-                      <div style={{ display: "flex", gap: 6 }}>
-                        {o.status === "pending" && (
-                          <>
-                            <button
-                              onClick={() => handleStatus(o._id, "approved")}
-                              disabled={updating === o._id}
-                              style={{
-                                display: "flex",
-                                alignItems: "center",
-                                gap: 4,
-                                padding: "4px 10px",
-                                background: "#F0FDF4",
-                                color: "#16A34A",
-                                border: "1px solid #86EFAC",
-                                borderRadius: 6,
-                                cursor: "pointer",
-                                fontSize: "0.75rem",
-                                fontWeight: 600,
-                              }}
-                            >
-                              <Check size={11} /> Approve
-                            </button>
-                            <button
-                              onClick={() => handleStatus(o._id, "cancelled")}
-                              disabled={updating === o._id}
-                              style={{
-                                display: "flex",
-                                alignItems: "center",
-                                gap: 4,
-                                padding: "4px 10px",
-                                background: "#FEF2F2",
-                                color: "#DC2626",
-                                border: "1px solid #FCA5A5",
-                                borderRadius: 6,
-                                cursor: "pointer",
-                                fontSize: "0.75rem",
-                                fontWeight: 600,
-                              }}
-                            >
-                              <X size={11} /> Reject
-                            </button>
-                          </>
-                        )}
-                        {o.status === "approved" && (
-                          <button
-                            onClick={() => handleStatus(o._id, "dispatched")}
-                            disabled={updating === o._id}
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              gap: 4,
-                              padding: "4px 10px",
-                              background: "#EFF4FF",
-                              color: "#2563EB",
-                              border: "1px solid #BFDBFE",
-                              borderRadius: 6,
-                              cursor: "pointer",
-                              fontSize: "0.75rem",
-                              fontWeight: 600,
-                            }}
-                          >
-                            <Truck size={11} /> Dispatch
-                          </button>
-                        )}
-                        {o.status === "dispatched" && (
-                          <button
-                            onClick={() => handleStatus(o._id, "delivered")}
-                            disabled={updating === o._id}
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              gap: 4,
-                              padding: "4px 10px",
-                              background: "#F0FDF4",
-                              color: "#15803D",
-                              border: "1px solid #86EFAC",
-                              borderRadius: 6,
-                              cursor: "pointer",
-                              fontSize: "0.75rem",
-                              fontWeight: 600,
-                            }}
-                          >
-                            <CheckCircle size={11} /> Delivered
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
 
 // ─────────────────────────────────────────────────────────────
 // TAB: PRODUCTS
@@ -1156,6 +608,15 @@ function ProductsTab() {
   });
   const [bulkResult, setBulkResult] = useState(null);
   const [bulkLoading, setBulkLoading] = useState(false);
+  const [page,setPage]=useState([1]);
+  const [pagination,setPagination]=useState({
+    page:1,
+    limit:20,
+    total:0,
+    totalPages:0,
+    hasNextPages:false,
+    hasPreviousPage:false
+  })
 
   const handleBulkUpload = async (e) => {
     const file = e.target.files[0];
@@ -1180,23 +641,29 @@ function ProductsTab() {
   const [imagePreview, setImagePreview] = useState("");
   const [stockAdj, setStockAdj] = useState({ qty: "", type: "add" });
 
-  const load = async () => {
-    setLoading(true);
-    try {
-      const d = await svc.getProducts(
-        search ? `?search=${encodeURIComponent(search)}` : "",
-      );
-      setProducts(d.products);
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setLoading(false);
+  const load = async (pageNumber = page) => {
+  setLoading(true);
+
+  try {
+    const params = new URLSearchParams();
+    params.set("page", pageNumber);
+    params.set("limit", "20");
+    if (search.trim()) {
+      params.set("search", search.trim());
     }
+    const d = await svc.getProducts(`?${params.toString()}`);
+    setProducts(d.products);
+    setPagination(d.pagination);
+  } catch (e) {
+    setError(e.message);
+  } finally {
+    setLoading(false);
+  }
   };
 
   useEffect(() => {
-    load();
-  }, []);
+    load(page);
+  }, [page]);
 
   const openAdd = () => {
     setForm({
@@ -1349,7 +816,10 @@ function ProductsTab() {
             className="input"
             placeholder="Search products..."
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) =>{
+               setSearch(e.target.value)
+               setPage(1)
+            }}
             onKeyDown={(e) => e.key === "Enter" && load()}
             style={{ paddingLeft: 34 }}
           />
@@ -1810,6 +1280,73 @@ function ProductsTab() {
           </button>
         </div>
       </Modal>
+      {/* Pagination */}
+      {pagination.totalPages > 1 && (
+  <div
+    style={{
+      display: "flex",
+      justifyContent: "center",
+      alignItems: "center",
+      gap: 12,
+      marginTop: 24,
+      padding: "16px 0",
+    }}
+  >
+    <button
+      onClick={() => setPage((p) => p - 1)}
+      disabled={!pagination.hasPreviousPage || loading}
+      style={{
+        padding: "8px 16px",
+        borderRadius: 8,
+        border: "1px solid var(--border)",
+        background: "var(--card)",
+        color: "var(--text)",
+        cursor:
+          !pagination.hasPreviousPage || loading
+            ? "not-allowed"
+            : "pointer",
+        opacity:
+          !pagination.hasPreviousPage || loading
+            ? 0.5
+            : 1,
+      }}
+    >
+      ← Previous
+    </button>
+
+    <span
+      style={{
+        color: "var(--text-muted)",
+        fontSize: "0.85rem",
+        fontWeight: 600,
+      }}
+    >
+      Page {pagination.page} of {pagination.totalPages}
+    </span>
+
+    <button
+      onClick={() => setPage((p) => p + 1)}
+      disabled={!pagination.hasNextPage || loading}
+      style={{
+        padding: "8px 16px",
+        borderRadius: 8,
+        border: "1px solid var(--border)",
+        background: "var(--card)",
+        color: "var(--text)",
+        cursor:
+          !pagination.hasNextPage || loading
+            ? "not-allowed"
+            : "pointer",
+        opacity:
+          !pagination.hasNextPage || loading
+            ? 0.5
+            : 1,
+      }}
+    >
+      Next →
+    </button>
+  </div>
+      )}
     </div>
   );
 }
@@ -1818,6 +1355,7 @@ function ProductsTab() {
 // TAB: RETAILERS  ← FIXED: link existing OR create new
 // ─────────────────────────────────────────────────────────────
 function RetailersTab() {
+  const [selectedRetailerId, setSelectedRetailerId] = useState(null);
   const [retailers, setRetailers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null); // 'link' | 'create'
@@ -1858,6 +1396,15 @@ function RetailersTab() {
   useEffect(() => {
     load();
   }, []);
+
+  if (selectedRetailerId) {
+    return (
+      <RetailerDetailView
+        retailerId={selectedRetailerId}
+        onBack={() => setSelectedRetailerId(null)}
+      />
+    );
+  }
 
   const openLink = () => {
     setModal("link");
@@ -2137,6 +1684,27 @@ function RetailersTab() {
                   </span>
                 </div>
               )}
+              <button
+                onClick={() => setSelectedRetailerId(r._id)}
+                style={{
+                  width: "100%",
+                  marginTop: 12,
+                  padding: "8px",
+                  background: "#EFF4FF",
+                  color: "#2563EB",
+                  border: "1px solid #BFDBFE",
+                  borderRadius: 8,
+                  cursor: "pointer",
+                  fontSize: "0.78rem",
+                  fontWeight: 600,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 6,
+                }}
+              >
+                View 360 Insights →
+              </button>
             </div>
           ))}
         </div>
@@ -3199,30 +2767,38 @@ export default function WholesalerDashboard() {
     dashboard: "Dashboard",
     orders: "Orders",
     products: "Products & Inventory",
+    "inventory-intelligence": "Inventory Intelligence",
+    "smart-reorder": "Smart Reorder Recommendations",
     retailers: "Retailers",
     salesmen: "Salesmen",
-    credit: "Credit Management",
+    credit: "Credit Intelligence Platform",
+    "credit-intelligence": "Credit Intelligence Platform",
     account: "My Account",
   };
 
   const renderContent = () => {
     switch (active) {
       case "dashboard":
-        return <DashboardTab />;
+        return <DashboardOverviewTab />;
       case "orders":
         return <OrdersTab />;
       case "products":
         return <ProductsTab />;
+      case "inventory-intelligence":
+        return <InventoryIntelligenceTab />;
+      case "smart-reorder":
+        return <SmartReorderTab />;
       case "retailers":
         return <RetailersTab />;
       case "salesmen":
         return <SalesmenTab />;
       case "credit":
-        return <CreditTab />;
+      case "credit-intelligence":
+        return <CreditIntelligenceTab />;
       case "account":
         return <AccountProfile />;
       default:
-        return <DashboardTab />;
+        return <DashboardOverviewTab />;
     }
   };
 
@@ -3237,7 +2813,7 @@ export default function WholesalerDashboard() {
     >
       <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
 
-      <Sidebar
+      <WholesalerSidebar
         active={active}
         setActive={setActive}
         collapsed={collapsed}

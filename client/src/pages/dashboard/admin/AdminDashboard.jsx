@@ -1,9 +1,11 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import Badge from '../../../components/ui/Badges'
 import StatCard from '../../../components/ui/StatCard'
+import { apiClient } from '../../../api/client'
+import { useAuth } from '../../../context/AuthContext'
 
-// ── Mock Data ─────────────────────────────────────────────────────────────────
+// ── Admin Dashboard Component ──────────────────────────────────────────────────
 
 const wholesalers = [
   { id: 1, name: 'Mehta Traders',      owner: 'Rajesh Mehta',   city: 'Mumbai',    retailers: 128, salesmen: 6,  revenue: '₹3.4L', plan: 'Pro',   status: 'Active',  joined: 'Jan 12, 2026' },
@@ -130,17 +132,50 @@ function AdminSidebar({ active, setActive, collapsed, setCollapsed }) {
 
 // ── Wholesalers Panel ─────────────────────────────────────────────────────────
 function WholesalersPanel() {
+  const [wholesalerList, setWholesalerList] = useState([])
+  const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('All')
   const [search, setSearch] = useState('')
   const [showModal, setShowModal] = useState(null)
+  const [error, setError] = useState('')
 
-  const filtered = wholesalers.filter(w =>
-    (filter === 'All' || w.status === filter) &&
-    w.name.toLowerCase().includes(search.toLowerCase())
+  const loadWholesalers = async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const data = await apiClient('/admin/wholesalers')
+      setWholesalerList(data.wholesalers || [])
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    loadWholesalers()
+  }, [])
+
+  const handleUpdateStatus = async (id, status) => {
+    try {
+      await apiClient(`/admin/wholesalers/${id}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status }),
+      })
+      await loadWholesalers()
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const filtered = wholesalerList.filter(w =>
+    (filter === 'All' || (w.status || '').toLowerCase() === filter.toLowerCase()) &&
+    (w.businessName || w.name || '').toLowerCase().includes(search.toLowerCase())
   )
 
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
+      {error && <div style={{ color: 'var(--red)', background: 'rgba(239,68,68,0.1)', padding: 10, borderRadius: 8 }}>{error}</div>}
       {/* Toolbar */}
       <div style={{ display:'flex', gap:12, flexWrap:'wrap', alignItems:'center' }}>
         <div style={{ position:'relative', flex:1, minWidth:200 }}>
@@ -154,52 +189,55 @@ function WholesalersPanel() {
               style={{ padding:'8px 14px', borderRadius:8, border:'1px solid', cursor:'pointer', fontFamily:'DM Sans,sans-serif', fontSize:'0.78rem', fontWeight:600, transition:'all 0.15s', background: filter===f ? 'var(--amber-dim)' : 'var(--card)', borderColor: filter===f ? 'rgba(245,158,11,0.4)' : 'var(--border)', color: filter===f ? 'var(--amber)' : 'var(--text-muted)' }}>{f}</button>
           ))}
         </div>
-        <button style={{ padding:'9px 18px', background:'var(--amber)', color:'#0A1628', border:'none', borderRadius:8, fontFamily:'DM Sans,sans-serif', fontWeight:700, fontSize:'0.85rem', cursor:'pointer' }}>
-          + Add Wholesaler
-        </button>
       </div>
 
       {/* Table */}
       <div style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:14, overflow:'hidden' }}>
-        <div style={{ overflowX:'auto' }}>
-          <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'0.83rem' }}>
-            <thead>
-              <tr style={{ background:'var(--card-2)', borderBottom:'1px solid var(--border)' }}>
-                {['Business','Owner','City','Retailers','Salesmen','Revenue','Plan','Status','Actions'].map(h => (
-                  <th key={h} style={{ padding:'11px 16px', textAlign:'left', fontSize:'0.72rem', fontWeight:700, color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.05em', whiteSpace:'nowrap' }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map(w => (
-                <tr key={w.id}
-                  style={{ borderBottom:'1px solid rgba(255,255,255,0.04)', transition:'background 0.15s' }}
-                  onMouseEnter={e => e.currentTarget.style.background='rgba(255,255,255,0.02)'}
-                  onMouseLeave={e => e.currentTarget.style.background='transparent'}>
-                  <td style={{ padding:'13px 16px', color:'var(--text)', fontWeight:600, whiteSpace:'nowrap' }}>{w.name}</td>
-                  <td style={{ padding:'13px 16px', color:'var(--text-muted)', whiteSpace:'nowrap' }}>{w.owner}</td>
-                  <td style={{ padding:'13px 16px', color:'var(--text-muted)' }}>{w.city}</td>
-                  <td style={{ padding:'13px 16px', color:'var(--text)', fontWeight:600 }}>{w.retailers}</td>
-                  <td style={{ padding:'13px 16px', color:'var(--text-muted)' }}>{w.salesmen}</td>
-                  <td style={{ padding:'13px 16px', color:'var(--green)', fontWeight:600 }}>{w.revenue}</td>
-                  <td style={{ padding:'13px 16px' }}>
-                    <span style={{ background: w.plan==='Pro' ? 'rgba(245,158,11,0.15)' : 'rgba(255,255,255,0.06)', color: w.plan==='Pro' ? 'var(--amber)' : 'var(--text-muted)', padding:'3px 10px', borderRadius:6, fontSize:'0.72rem', fontWeight:700 }}>{w.plan}</span>
-                  </td>
-                  <td style={{ padding:'13px 16px' }}><Badge status={w.status} /></td>
-                  <td style={{ padding:'13px 16px' }}>
-                    <div style={{ display:'flex', gap:6 }}>
-                      <button onClick={() => setShowModal(w)}
-                        style={{ padding:'4px 10px', background:'rgba(245,158,11,0.1)', border:'1px solid rgba(245,158,11,0.2)', color:'var(--amber)', borderRadius:6, cursor:'pointer', fontSize:'0.72rem', fontWeight:600, fontFamily:'DM Sans,sans-serif' }}>View</button>
-                      {w.status === 'Pending' && (
-                        <button style={{ padding:'4px 10px', background:'rgba(16,185,129,0.1)', border:'1px solid rgba(16,185,129,0.2)', color:'var(--green)', borderRadius:6, cursor:'pointer', fontSize:'0.72rem', fontWeight:600, fontFamily:'DM Sans,sans-serif' }}>Approve</button>
-                      )}
-                    </div>
-                  </td>
+        {loading ? (
+          <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>Loading wholesalers...</div>
+        ) : filtered.length === 0 ? (
+          <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>No wholesalers found.</div>
+        ) : (
+          <div style={{ overflowX:'auto' }}>
+            <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'0.83rem' }}>
+              <thead>
+                <tr style={{ background:'var(--card-2)', borderBottom:'1px solid var(--border)' }}>
+                  {['Business','Owner','City','Retailers','Salesmen','Orders','Status','Actions'].map(h => (
+                    <th key={h} style={{ padding:'11px 16px', textAlign:'left', fontSize:'0.72rem', fontWeight:700, color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.05em', whiteSpace:'nowrap' }}>{h}</th>
+                  ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {filtered.map(w => (
+                  <tr key={w._id || w.id}
+                    style={{ borderBottom:'1px solid rgba(255,255,255,0.04)', transition:'background 0.15s' }}
+                    onMouseEnter={e => e.currentTarget.style.background='rgba(255,255,255,0.02)'}
+                    onMouseLeave={e => e.currentTarget.style.background='transparent'}>
+                    <td style={{ padding:'13px 16px', color:'var(--text)', fontWeight:600, whiteSpace:'nowrap' }}>{w.businessName || w.name}</td>
+                    <td style={{ padding:'13px 16px', color:'var(--text-muted)', whiteSpace:'nowrap' }}>{w.name}</td>
+                    <td style={{ padding:'13px 16px', color:'var(--text-muted)' }}>{w.city || '-'}</td>
+                    <td style={{ padding:'13px 16px', color:'var(--text)', fontWeight:600 }}>{w.counts?.retailers || 0}</td>
+                    <td style={{ padding:'13px 16px', color:'var(--text-muted)' }}>{w.counts?.salesmen || 0}</td>
+                    <td style={{ padding:'13px 16px', color:'var(--green)', fontWeight:600 }}>{w.counts?.orders || 0}</td>
+                    <td style={{ padding:'13px 16px' }}><Badge status={w.status} /></td>
+                    <td style={{ padding:'13px 16px' }}>
+                      <div style={{ display:'flex', gap:6 }}>
+                        <button onClick={() => setShowModal(w)}
+                          style={{ padding:'4px 10px', background:'rgba(245,158,11,0.1)', border:'1px solid rgba(245,158,11,0.2)', color:'var(--amber)', borderRadius:6, cursor:'pointer', fontSize:'0.72rem', fontWeight:600, fontFamily:'DM Sans,sans-serif' }}>View</button>
+                        {w.status === 'pending' && (
+                          <button onClick={() => handleUpdateStatus(w._id, 'active')} style={{ padding:'4px 10px', background:'rgba(16,185,129,0.1)', border:'1px solid rgba(16,185,129,0.2)', color:'var(--green)', borderRadius:6, cursor:'pointer', fontSize:'0.72rem', fontWeight:600, fontFamily:'DM Sans,sans-serif' }}>Approve</button>
+                        )}
+                        {w.status === 'active' && (
+                          <button onClick={() => handleUpdateStatus(w._id, 'suspended')} style={{ padding:'4px 10px', background:'rgba(239,68,68,0.1)', border:'1px solid rgba(239,68,68,0.2)', color:'var(--red)', borderRadius:6, cursor:'pointer', fontSize:'0.72rem', fontWeight:600, fontFamily:'DM Sans,sans-serif' }}>Suspend</button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* Detail Modal */}

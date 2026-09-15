@@ -364,54 +364,111 @@ function PlaceOrder({ onOrderPlaced }) {
   const [submitted, setSubmitted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [paymentType, setPaymentType] = useState("cash");
+  const [page, setPage] = useState(1);
+  const [limit] = useState(20);
+  const [pagination, setPagination] = useState({
+  page: 1,
+  limit: 20,
+  total: 0,
+  totalPages: 0,
+  hasNextPage: false,
+  hasPreviousPage: false,
+  });
 
   const categories = [
     "All",
     ...new Set(products.map((p) => p.category).filter(Boolean)),
   ];
 
-  const filtered = products.filter(
-    (p) =>
-      (category === "All" || p.category === category) &&
-      p.name.toLowerCase().includes(search.toLowerCase()),
-  );
-
   useEffect(() => {
-    const load = async () => {
-      try {
-        const token = getAccessToken();
-        const res = await fetch(`${BASE}/products`, {
-          headers: { Authorization: `Bearer ${token}` },
-          credentials: "include",
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.message);
-        setProducts(data.products);
-      } catch (e) {
-        setApiError(e.message);
-      } finally {
-        setLoading(false);
+  const load = async () => {
+    try {
+      setLoading(true);
+      setApiError("");
+
+      const token = getAccessToken();
+
+      const params = new URLSearchParams();
+
+      params.set("page", page);
+      params.set("limit", limit);
+
+      if (search.trim()) {
+        params.set("search", search.trim());
       }
-    };
-    load();
-  }, []);
+
+      if (category !== "All") {
+        params.set("category", category);
+      }
+
+      const res = await fetch(
+        `${BASE}/products?${params.toString()}`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          credentials: "include",
+        }
+      );
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.message);
+      }
+
+      setProducts(data.products || []);
+
+      setPagination(
+        data.pagination || {
+          page: 1,
+          limit: 20,
+          total: 0,
+          totalPages: 0,
+          hasNextPage: false,
+          hasPreviousPage: false,
+        }
+      );
+    } catch (e) {
+      setApiError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  load();
+  }, [page, limit, search, category]);
 
   const productId = (product) => product?._id || product?.id;
-  const addToCart = (id) => setCart((c) => ({ ...c, [id]: (c[id] || 0) + 1 }));
+  const addToCart = (product) => {
+    const id=productId(product)
+    setCart((c) => ({ ...c, [id]:{
+      product,
+      qty:(c[id]?.qty || 0) + 1 ,
+    },
+  }));
+};
   const removeFromCart = (id) =>
     setCart((c) => {
       const updated = { ...c };
-      if (updated[id] > 1) updated[id]--;
+      if (!updated[id]) return updated;
+      if(updated[id].qty>1){
+        updated[id]={
+          ...updated[id],
+          qty:updated[id].qty-1,
+        }
+      }
       else delete updated[id];
       return updated;
     });
 
   const cartItems = Object.entries(cart)
-    .map(([id, qty]) => ({
-      ...products.find((p) => productId(p) === id),
-      qty,
+    .map(([id, entry]) => ({
+      ...(entry?.product || {}),
+      productId: id,
+      qty: entry?.qty || 0,
     }))
-    .filter((item) => productId(item));
+    .filter((item) => item.productId && item.qty > 0);
   const cartTotal = cartItems.reduce(
     (sum, i) => sum + (i?.price || 0) * i.qty,
     0,
@@ -522,7 +579,10 @@ function PlaceOrder({ onOrderPlaced }) {
             </span>
             <input
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => {
+                setSearch(e.target.value)
+                setPage(1)
+              }}
               placeholder="Search products..."
               style={{
                 width: "100%",
@@ -541,7 +601,10 @@ function PlaceOrder({ onOrderPlaced }) {
             {categories.map((cat) => (
               <button
                 key={cat}
-                onClick={() => setCategory(cat)}
+                onClick={() =>{
+                   setCategory(cat)
+                   setPage(1)
+                }}
                 style={{
                   padding: "8px 14px",
                   borderRadius: 8,
@@ -587,7 +650,7 @@ function PlaceOrder({ onOrderPlaced }) {
           <div style={{ color: "var(--text-muted)", padding: "36px 0" }}>
             Loading products...
           </div>
-        ) : filtered.length === 0 ? (
+        ) : products.length === 0 ? (
           <div style={{ color: "var(--text-muted)", padding: "36px 0" }}>
             No products available from your wholesaler yet.
           </div>
@@ -599,7 +662,7 @@ function PlaceOrder({ onOrderPlaced }) {
             gap: 14,
           }}
         >
-          {filtered.map((product) => (
+          {products.map((product) => (
             <div
               key={productId(product)}
               style={{
@@ -720,7 +783,7 @@ function PlaceOrder({ onOrderPlaced }) {
                     {cart[productId(product)]}
                   </span>
                   <button
-                    onClick={() => addToCart(productId(product))}
+                    onClick={() => addToCart(product)}
                     style={{
                       width: 30,
                       height: 30,
@@ -741,7 +804,7 @@ function PlaceOrder({ onOrderPlaced }) {
                 </div>
               ) : (
                 <button
-                  onClick={() => addToCart(productId(product))}
+                  onClick={() => addToCart(product)}
                   disabled={product.stock <= 0}
                   style={{
                     width: "100%",
@@ -769,6 +832,91 @@ function PlaceOrder({ onOrderPlaced }) {
               </div>
             </div>
           ))}
+        {/* Product Grid */}
+<div
+  style={{
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fill, minmax(200px,1fr))",
+    gap: 14,
+  }}
+>
+  {products.map((product) => (
+    <div
+      key={productId(product)}
+      // ... EVERYTHING YOU ALREADY HAVE
+    >
+      ...
+    </div>
+  ))}
+</div>
+
+    {/* Pagination */}
+    {pagination.totalPages > 1 && (
+  <div
+    style={{
+      display: "flex",
+      justifyContent: "center",
+      alignItems: "center",
+      gap: 12,
+      marginTop: 24,
+      padding: "16px 0",
+    }}
+  >
+    <button
+      disabled={!pagination.hasPreviousPage}
+      onClick={() => {
+        const newPage = page - 1;
+        setPage(newPage);
+        load(newPage);
+      }}
+      style={{
+        padding: "8px 14px",
+        borderRadius: 8,
+        border: "1px solid var(--border)",
+        background: "var(--card)",
+        color: "var(--text)",
+        cursor: pagination.hasPreviousPage
+          ? "pointer"
+          : "not-allowed",
+        opacity: pagination.hasPreviousPage ? 1 : 0.5,
+      }}
+    >
+      ← Previous
+    </button>
+
+    <span
+      style={{
+        color: "var(--text-muted)",
+        fontSize: "0.85rem",
+      }}
+    >
+      Page <strong>{pagination.page}</strong> of{" "}
+      <strong>{pagination.totalPages}</strong>
+    </span>
+
+    <button
+      disabled={!pagination.hasNextPage}
+      onClick={() => {
+        const newPage = page + 1;
+        setPage(newPage);
+        load(newPage);
+      }}
+      style={{
+        padding: "8px 14px",
+        borderRadius: 8,
+        border: "1px solid var(--border)",
+        background: "var(--card)",
+        color: "var(--text)",
+        cursor: pagination.hasNextPage
+          ? "pointer"
+          : "not-allowed",
+        opacity: pagination.hasNextPage ? 1 : 0.5,
+      }}
+    >
+      Next →
+    </button>
+  </div>
+      )}
         </div>
         )}
       </div>

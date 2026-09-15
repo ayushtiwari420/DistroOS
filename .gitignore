@@ -1,5 +1,32 @@
+# Dependencies
+node_modules/
+**/node_modules/
+.dart_tool/
+**/.dart_tool/
+.flutter-plugins-dependencies
+
+# Production build outputs
+dist/
+**/dist/
+build/
+**/build/
+.pub/
+**/.pub/
+
+# Environment variables & secrets
 .env
-.distroos-ai/logs/
-.distroos-ai/reports/
-__pycache__/
-*.pyc
+.env.*
+!.env.example
+
+# IDE & Editor files
+.idea/
+**/.idea/
+.vscode/
+*.swp
+*.swo
+*.iml
+.DS_Store
+
+# Temporary & AI Scratch logs
+.distroos-ai/
+*.log
