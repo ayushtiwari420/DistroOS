@@ -1,23 +1,4 @@
-import { getAccessToken } from '../context/AuthContext'
-
-const BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api'
-
-// ── Authenticated request helper ──────────────────────────────
-const api = async (endpoint, options = {}) => {
-  const token = getAccessToken()
-  const res   = await fetch(`${BASE}${endpoint}`, {
-    headers: {
-      'Content-Type':  'application/json',
-      'Authorization': `Bearer ${token}`,
-      ...options.headers,
-    },
-    credentials: 'include',
-    ...options,
-  })
-  const data = await res.json()
-  if (!res.ok) throw new Error(data.message || 'Request failed')
-  return data
-}
+import { apiClient as api } from '../api/client'
 
 // ── ORDERS ────────────────────────────────────────────────────
 export const getOrderStats  = ()               => api('/orders/stats')
