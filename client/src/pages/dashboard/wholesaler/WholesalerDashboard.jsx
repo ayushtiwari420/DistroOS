@@ -30,6 +30,7 @@ import AccountProfile from "../../../components/shared/AccountProfile";
 import WholesalerSidebar from "./components/WholesalerSidebar";
 import DashboardOverviewTab from "./views/DashboardOverviewTab";
 import OrdersTab from "./views/OrdersTab";
+import RetailerDetailView from "./views/RetailerDetailView";
 
 
 // ─────────────────────────────────────────────────────────────
@@ -1351,6 +1352,7 @@ function ProductsTab() {
 // TAB: RETAILERS  ← FIXED: link existing OR create new
 // ─────────────────────────────────────────────────────────────
 function RetailersTab() {
+  const [selectedRetailerId, setSelectedRetailerId] = useState(null);
   const [retailers, setRetailers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null); // 'link' | 'create'
@@ -1391,6 +1393,15 @@ function RetailersTab() {
   useEffect(() => {
     load();
   }, []);
+
+  if (selectedRetailerId) {
+    return (
+      <RetailerDetailView
+        retailerId={selectedRetailerId}
+        onBack={() => setSelectedRetailerId(null)}
+      />
+    );
+  }
 
   const openLink = () => {
     setModal("link");
@@ -1670,6 +1681,27 @@ function RetailersTab() {
                   </span>
                 </div>
               )}
+              <button
+                onClick={() => setSelectedRetailerId(r._id)}
+                style={{
+                  width: "100%",
+                  marginTop: 12,
+                  padding: "8px",
+                  background: "#EFF4FF",
+                  color: "#2563EB",
+                  border: "1px solid #BFDBFE",
+                  borderRadius: 8,
+                  cursor: "pointer",
+                  fontSize: "0.78rem",
+                  fontWeight: 600,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 6,
+                }}
+              >
+                View 360 Insights →
+              </button>
             </div>
           ))}
         </div>

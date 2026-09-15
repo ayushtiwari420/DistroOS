@@ -488,7 +488,7 @@ export const getRetailerInsights = async (wholesalerId, retailerId) => {
     _id: retailerId,
     role: 'retailer',
     wholesaler: wholesalerId,
-  }).select('name email phone businessName city status createdAt')
+  }).select('name email phone businessName city status createdAt').lean()
 
   if (!retailer) {
     throw new ApiError(StatusCode.NOT_FOUND, 'Retailer not found in your network.')
@@ -498,8 +498,11 @@ export const getRetailerInsights = async (wholesalerId, retailerId) => {
 
   const orders = await Order.find({ wholesaler: wholesalerId, retailer: retailerId })
     .populate('items.product', 'name unit price category')
+    .populate('salesman', 'name email phone')
     .sort({ createdAt: -1 })
     .lean()
+
+  const assignedSalesman = orders.find((o) => o.salesman)?.salesman || null
 
   const deliveredOrders = orders.filter((o) => o.status === 'delivered')
   const totalSpent = deliveredOrders.reduce((sum, o) => sum + o.totalAmount, 0)
@@ -519,6 +522,7 @@ export const getRetailerInsights = async (wholesalerId, retailerId) => {
     avgOrderIntervalDays = Math.round(intervals.reduce((a, b) => a + b, 0) / intervals.length)
   }
 
+  // ── Top Purchased Products ──
   const productMap = {}
   orders.forEach((o) => {
     o.items.forEach((item) => {
@@ -527,6 +531,7 @@ export const getRetailerInsights = async (wholesalerId, retailerId) => {
         productMap[pid] = {
           productId: pid,
           productName: item.productName,
+          category: item.product?.category || 'General',
           totalQuantity: 0,
           totalSpent: 0,
         }
@@ -540,13 +545,72 @@ export const getRetailerInsights = async (wholesalerId, retailerId) => {
     .sort((a, b) => b.totalQuantity - a.totalQuantity)
     .slice(0, 5)
 
-  // Credit profile & Trust score calculation
+  // ── Credit Profile ──
+  const hasCredit = Boolean(credit)
   const creditLimit = credit?.creditLimit || 0
   const currentDue = credit?.currentDue || 0
   const availableCredit = Math.max(0, creditLimit - currentDue)
   const creditUtilization =
     creditLimit > 0 ? Math.min(100, Math.round((currentDue / creditLimit) * 100)) : 0
 
+  // ── Payment Behavior & History ──
+  const paymentTypeDistribution = { cash: 0, credit: 0, upi: 0 }
+  const paymentStatusDistribution = { paid: 0, partial: 0, unpaid: 0 }
+  let totalPaid = 0
+  let totalOutstandingBalance = 0
+
+  orders.forEach((o) => {
+    if (o.paymentType && paymentTypeDistribution[o.paymentType] !== undefined) {
+      paymentTypeDistribution[o.paymentType]++
+    }
+    if (o.paymentStatus && paymentStatusDistribution[o.paymentStatus] !== undefined) {
+      paymentStatusDistribution[o.paymentStatus]++
+    }
+    totalPaid += o.amountPaid || 0
+    totalOutstandingBalance += o.balanceDue || 0
+  })
+
+  // ── Activity Timeline Construction (Real Database Events Only) ──
+  const timelineEvents = []
+
+  if (retailer.createdAt) {
+    timelineEvents.push({
+      id: `reg-${retailer._id}`,
+      type: 'account_created',
+      title: 'Retailer Account Registered',
+      description: `Account initialized for ${retailer.businessName || retailer.name}`,
+      timestamp: retailer.createdAt,
+    })
+  }
+
+  orders.forEach((o) => {
+    timelineEvents.push({
+      id: `ord-${o._id}`,
+      type: 'order_placed',
+      title: `Order #${o.orderNumber || o._id.toString().slice(-6)} (${o.status.toUpperCase()})`,
+      description: `${o.items?.length || 0} items • Amount: ₹${(o.totalAmount || 0).toLocaleString('en-IN')}`,
+      status: o.status,
+      amount: o.totalAmount,
+      timestamp: o.createdAt,
+    })
+  })
+
+  if (credit?.transactions && Array.isArray(credit.transactions)) {
+    credit.transactions.forEach((tx) => {
+      timelineEvents.push({
+        id: `tx-${tx._id}`,
+        type: tx.type === 'credit' ? 'payment_recorded' : 'credit_debit',
+        title: tx.type === 'credit' ? `Credit Repayment Received` : `Credit Balance Adjusted`,
+        description: `Amount: ₹${(tx.amount || 0).toLocaleString('en-IN')} ${tx.note ? `• Note: ${tx.note}` : ''}`,
+        amount: tx.amount,
+        timestamp: tx.date || tx.createdAt || new Date(),
+      })
+    })
+  }
+
+  timelineEvents.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+
+  // ── Trust Score Calculation ──
   let score = 100
   const factors = []
 
@@ -590,26 +654,40 @@ export const getRetailerInsights = async (wholesalerId, retailerId) => {
     factors.push(`Consistent order fulfillment history (${deliveredCount} delivered orders) (+5 pts)`)
   }
 
-  const trustScore = Math.max(0, Math.min(100, score))
+  const trustScoreValue = Math.max(0, Math.min(100, score))
   let tier = 'High Risk'
-  if (trustScore >= 90) tier = 'Excellent'
-  else if (trustScore >= 75) tier = 'Good'
-  else if (trustScore >= 50) tier = 'Moderate Risk'
+  if (trustScoreValue >= 90) tier = 'Excellent'
+  else if (trustScoreValue >= 75) tier = 'Good'
+  else if (trustScoreValue >= 50) tier = 'Moderate Risk'
 
-  // Smart Reorder suggestions specific to this retailer
   const smartReorderSuggestions = await getSmartReorderSuggestions(wholesalerId, retailerId)
 
   return {
-    retailer,
+    retailer: {
+      ...retailer,
+      assignedSalesman,
+    },
     metrics: {
       totalSpent,
       totalOrders,
       deliveredCount,
       averageOrderValue,
-      avgOrderIntervalDays,
+      outstandingCredit: currentDue,
       lastOrderDate: orders[0]?.createdAt || null,
     },
-    creditProfile: {
+    purchaseBehavior: {
+      totalOrders,
+      deliveredOrdersCount: deliveredCount,
+      pendingOrdersCount: orders.filter((o) => o.status === 'pending').length,
+      dispatchedOrdersCount: orders.filter((o) => o.status === 'dispatched').length,
+      cancelledOrdersCount: orders.filter((o) => o.status === 'cancelled').length,
+      avgOrderIntervalDays,
+      paymentTypeDistribution,
+    },
+    topProducts,
+    recentOrders: orders.slice(0, 10),
+    creditOverview: {
+      hasCredit,
       creditLimit,
       currentDue,
       availableCredit,
@@ -618,14 +696,19 @@ export const getRetailerInsights = async (wholesalerId, retailerId) => {
       lastPaymentDate: credit?.lastPaymentDate || null,
       transactionCount: credit?.transactions?.length || 0,
     },
+    paymentHistory: {
+      totalPaid,
+      totalOutstandingBalance,
+      paymentStatusDistribution,
+      recentTransactions: credit?.transactions ? [...credit.transactions].reverse().slice(0, 10) : [],
+    },
+    activityTimeline: timelineEvents,
     trustScore: {
-      score: trustScore,
+      score: trustScoreValue,
       tier,
       factors,
       lastEvaluated: new Date(),
     },
-    topProducts,
-    recentOrders: orders.slice(0, 5),
     smartReorderSuggestions,
   }
 }
