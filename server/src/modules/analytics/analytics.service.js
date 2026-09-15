@@ -721,88 +721,217 @@ export const getRetailer360 = async (wholesalerId, retailerId) => {
 }
 
 /**
- * Smart Reorder Suggestions Generator
+ * Smart Reorder V1 Recommendation Engine
  */
-export const getSmartReorderSuggestions = async (wholesalerId, retailerId = null) => {
-  const queryFilter = { wholesaler: wholesalerId }
-  if (retailerId) queryFilter.retailer = retailerId
+export const getSmartReorderRecommendations = async (wholesalerId, options = {}) => {
+  const { status, retailer, product, search, page = 1, limit = 20 } = options
+  const pageNum = Math.max(1, parseInt(page, 10) || 1)
+  const limitNum = Math.max(1, parseInt(limit, 10) || 20)
 
-  const orders = await Order.find(queryFilter)
-    .populate('retailer', 'name businessName')
-    .sort({ createdAt: 1 })
-    .lean()
+  const wholesalerObjId = new mongoose.Types.ObjectId(wholesalerId)
 
-  const pairMap = {}
+  // 1. Single-pass aggregation over non-cancelled orders for wholesaler
+  const aggResult = await Order.aggregate([
+    {
+      $match: {
+        wholesaler: wholesalerObjId,
+        status: { $ne: 'cancelled' },
+      },
+    },
+    { $unwind: '$items' },
+    {
+      $group: {
+        _id: {
+          retailer: '$retailer',
+          product: '$items.product',
+        },
+        productName: { $first: '$items.productName' },
+        orderDates: { $push: '$createdAt' },
+        quantities: { $push: '$items.quantity' },
+        totalOrdersCount: { $sum: 1 },
+        totalQuantityPurchased: { $sum: '$items.quantity' },
+      },
+    },
+  ])
 
-  orders.forEach((o) => {
-    const rId = o.retailer?._id?.toString() || 'unknown'
-    const rName = o.retailer?.businessName || o.retailer?.name || 'Retailer'
+  // 2. Fetch active products & retailers for wholesaler in parallel
+  const [activeProducts, activeRetailers] = await Promise.all([
+    Product.find({ wholesaler: wholesalerId, isActive: true }).select('name category unit price stock').lean(),
+    User.find({ wholesaler: wholesalerId, role: 'retailer' }).select('name businessName city email status').lean(),
+  ])
 
-    o.items.forEach((item) => {
-      const pId = item.product?.toString() || item.productName
-      const key = `${rId}_${pId}`
+  const productMap = {}
+  activeProducts.forEach((p) => {
+    productMap[p._id.toString()] = p
+  })
 
-      if (!pairMap[key]) {
-        pairMap[key] = {
-          retailerId: rId,
-          retailerName: rName,
-          productId: pId,
-          productName: item.productName,
-          orderDates: [],
-          quantities: [],
-        }
-      }
-      pairMap[key].orderDates.push(new Date(o.createdAt).getTime())
-      pairMap[key].quantities.push(item.quantity)
-    })
+  const retailerMap = {}
+  activeRetailers.forEach((r) => {
+    retailerMap[r._id.toString()] = r
   })
 
   const now = Date.now()
-  const suggestions = []
+  const allRecommendations = []
 
-  Object.values(pairMap).forEach((pair) => {
-    const totalOrders = pair.orderDates.length
-    const lastOrderTime = pair.orderDates[pair.orderDates.length - 1]
-    const avgQuantity = Math.round(
-      pair.quantities.reduce((a, b) => a + b, 0) / pair.quantities.length
+  for (const item of aggResult) {
+    const rId = item._id.retailer?.toString()
+    const pId = item._id.product?.toString()
+
+    const rObj = retailerMap[rId]
+    const pObj = productMap[pId]
+
+    // Exclude if retailer is no longer active in wholesaler network or product is inactive
+    if (!rObj || !pObj) continue
+
+    // Sort order dates ascending
+    const sortedDates = item.orderDates
+      .map((d) => new Date(d).getTime())
+      .filter((t) => !isNaN(t))
+      .sort((a, b) => a - b)
+
+    if (sortedDates.length === 0) continue
+
+    const totalOrders = sortedDates.length
+    const firstPurchaseDate = new Date(sortedDates[0])
+    const lastPurchaseDate = new Date(sortedDates[sortedDates.length - 1])
+    const daysSinceLastPurchase = Math.max(0, Math.floor((now - lastPurchaseDate.getTime()) / (1000 * 60 * 60 * 24)))
+
+    const avgQuantity = Math.max(
+      1,
+      Math.round(item.quantities.reduce((a, b) => a + Number(b || 0), 0) / item.quantities.length)
     )
 
-    let avgIntervalDays = 7
-    if (totalOrders > 1) {
+    let recommendationStatus = 'INSUFFICIENT_DATA'
+    let averageOrderInterval = 0
+    let explanation = ''
+
+    if (totalOrders < 2) {
+      recommendationStatus = 'INSUFFICIENT_DATA'
+      averageOrderInterval = 0
+      explanation = `${rObj.businessName || rObj.name} has purchased ${pObj.name} only once. At least 2 orders are required to calculate a reorder interval.`
+    } else {
+      // Calculate intervals between consecutive purchases
       const intervals = []
-      for (let i = 1; i < totalOrders; i++) {
-        intervals.push((pair.orderDates[i] - pair.orderDates[i - 1]) / (1000 * 60 * 60 * 24))
+      for (let i = 1; i < sortedDates.length; i++) {
+        const diffDays = Math.round((sortedDates[i] - sortedDates[i - 1]) / (1000 * 60 * 60 * 24))
+        if (diffDays > 0) {
+          intervals.push(diffDays)
+        }
       }
-      avgIntervalDays = Math.max(1, Math.round(intervals.reduce((a, b) => a + b, 0) / intervals.length))
+
+      if (intervals.length === 0) {
+        // Multiple purchases on the exact same day
+        recommendationStatus = 'INSUFFICIENT_DATA'
+        averageOrderInterval = 0
+        explanation = `${rObj.businessName || rObj.name} placed multiple orders for ${pObj.name} on the same day. More distinct purchase days are required.`
+      } else {
+        averageOrderInterval = Math.max(1, Math.round(intervals.reduce((a, b) => a + b, 0) / intervals.length))
+
+        if (daysSinceLastPurchase >= averageOrderInterval) {
+          recommendationStatus = 'REORDER_DUE'
+          explanation = `${rObj.businessName || rObj.name} usually purchases ${pObj.name} every ${averageOrderInterval} days. Their last purchase was ${daysSinceLastPurchase} days ago (Typical quantity: ${avgQuantity} ${pObj.unit || 'units'}).`
+        } else if (daysSinceLastPurchase >= Math.round(averageOrderInterval * 0.75)) {
+          recommendationStatus = 'DUE_SOON'
+          explanation = `${rObj.businessName || rObj.name} purchases ${pObj.name} every ${averageOrderInterval} days. Reorder is expected soon (last purchase ${daysSinceLastPurchase} days ago).`
+        } else {
+          recommendationStatus = 'NOT_DUE'
+          explanation = `${rObj.businessName || rObj.name} purchased ${pObj.name} ${daysSinceLastPurchase} days ago. Next reorder expected in ${averageOrderInterval - daysSinceLastPurchase} days.`
+        }
+      }
     }
 
-    const expectedTime = lastOrderTime + avgIntervalDays * 24 * 60 * 60 * 1000
-    const daysUntilReorder = Math.round((expectedTime - now) / (1000 * 60 * 60 * 24))
+    const suggestedQuantity = avgQuantity
 
-    let status = 'on_track'
-    if (daysUntilReorder < 0) {
-      status = 'overdue_reorder'
-    } else if (daysUntilReorder <= 5) {
-      status = 'reorder_due_soon'
+    // Check optional filters
+    if (status && status.toUpperCase() !== recommendationStatus) continue
+    if (retailer && retailer !== rId) continue
+    if (product && product !== pId) continue
+
+    if (search) {
+      const q = search.toLowerCase()
+      const rNameMatch =
+        (rObj.businessName || '').toLowerCase().includes(q) || (rObj.name || '').toLowerCase().includes(q)
+      const pNameMatch = (pObj.name || '').toLowerCase().includes(q)
+      if (!rNameMatch && !pNameMatch) continue
     }
 
-    suggestions.push({
-      retailerId: pair.retailerId,
-      retailerName: pair.retailerName,
-      productId: pair.productId,
-      productName: pair.productName,
-      totalOrdersCount: totalOrders,
-      lastOrderDate: new Date(lastOrderTime),
+    allRecommendations.push({
+      retailer: {
+        id: rObj._id,
+        name: rObj.businessName || rObj.name,
+        contactName: rObj.name,
+        email: rObj.email,
+        city: rObj.city || '',
+      },
+      product: {
+        id: pObj._id,
+        name: pObj.name,
+        category: pObj.category || 'General',
+        unit: pObj.unit || 'piece',
+        price: pObj.price || 0,
+        stock: pObj.stock || 0,
+      },
+      status: recommendationStatus,
+      averageOrderInterval,
+      daysSinceLastPurchase,
       averageQuantity: avgQuantity,
-      averageIntervalDays: avgIntervalDays,
-      expectedReorderDate: new Date(expectedTime),
-      daysUntilReorder,
-      status,
-      suggestedQuantity: avgQuantity,
+      suggestedQuantity,
+      firstPurchaseDate,
+      lastPurchaseDate,
+      totalOrdersCount: totalOrders,
+      totalQuantityPurchased: item.totalQuantityPurchased,
+      explanation,
     })
+  }
+
+  // Priority sorting: REORDER_DUE > DUE_SOON > NOT_DUE > INSUFFICIENT_DATA
+  const statusPriority = { REORDER_DUE: 1, DUE_SOON: 2, NOT_DUE: 3, INSUFFICIENT_DATA: 4 }
+  allRecommendations.sort((a, b) => {
+    const pA = statusPriority[a.status] || 99
+    const pB = statusPriority[b.status] || 99
+    if (pA !== pB) return pA - pB
+    return b.daysSinceLastPurchase - b.averageOrderInterval - (a.daysSinceLastPurchase - a.averageOrderInterval)
   })
 
-  return suggestions.sort((a, b) => a.daysUntilReorder - b.daysUntilReorder)
+  const total = allRecommendations.length
+  const startIndex = (pageNum - 1) * limitNum
+  const paginatedRecommendations = allRecommendations.slice(startIndex, startIndex + limitNum)
+  const totalPages = Math.ceil(total / limitNum) || 1
+
+  return {
+    recommendations: paginatedRecommendations,
+    pagination: {
+      page: pageNum,
+      limit: limitNum,
+      total,
+      totalPages,
+      hasNextPage: pageNum < totalPages,
+      hasPreviousPage: pageNum > 1,
+    },
+  }
+}
+
+/**
+ * Smart Reorder Suggestions Generator (Backwards Compatible Format)
+ */
+export const getSmartReorderSuggestions = async (wholesalerId, retailerId = null) => {
+  const options = retailerId ? { retailer: retailerId } : {}
+  const res = await getSmartReorderRecommendations(wholesalerId, options)
+  return res.recommendations.map((item) => ({
+    retailerId: item.retailer.id,
+    retailerName: item.retailer.name,
+    productId: item.product.id,
+    productName: item.product.name,
+    totalOrdersCount: item.totalOrdersCount,
+    lastOrderDate: item.lastPurchaseDate,
+    averageQuantity: item.averageQuantity,
+    averageIntervalDays: item.averageOrderInterval,
+    expectedReorderDate: new Date(new Date(item.lastPurchaseDate).getTime() + item.averageOrderInterval * 86400000),
+    daysUntilReorder: item.averageOrderInterval - item.daysSinceLastPurchase,
+    status: item.status === 'REORDER_DUE' ? 'overdue_reorder' : item.status === 'DUE_SOON' ? 'reorder_due_soon' : 'on_track',
+    suggestedQuantity: item.suggestedQuantity,
+    explanation: item.explanation,
+  }))
 }
 
 /**

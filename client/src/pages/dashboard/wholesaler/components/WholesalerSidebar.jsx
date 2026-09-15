@@ -1,7 +1,7 @@
 import React from 'react'
 import {
   LayoutDashboard, ShoppingCart, Package, Store, CreditCard, Users, LogOut,
-  ChevronLeft, ChevronRight, User
+  ChevronLeft, ChevronRight, User, Sparkles
 } from 'lucide-react'
 import { useAuth } from '../../../../context/AuthContext'
 import BrandLogo from '../../../../components/ui/BrandLogo'
@@ -10,6 +10,7 @@ const navItems = [
   { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { key: 'orders', label: 'Orders', icon: ShoppingCart },
   { key: 'products', label: 'Products', icon: Package },
+  { key: 'smart-reorder', label: 'Smart Reorder', icon: Sparkles },
   { key: 'retailers', label: 'Retailers', icon: Store },
   { key: 'salesmen', label: 'Salesmen', icon: Users },
   { key: 'credit', label: 'Credit', icon: CreditCard },

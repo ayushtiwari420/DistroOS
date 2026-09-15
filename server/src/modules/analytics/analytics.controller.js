@@ -60,6 +60,15 @@ export const getSmartReorderSuggestions = async (req, res, next) => {
   }
 }
 
+export const getSmartReorderRecommendations = async (req, res, next) => {
+  try {
+    const data = await analyticsService.getSmartReorderRecommendations(req.user.id, req.query)
+    return res.status(200).json({ success: true, ...data })
+  } catch (err) {
+    next(err)
+  }
+}
+
 export const calculateCreditTrustScore = async (req, res, next) => {
   try {
     const creditScore = await analyticsService.calculateCreditTrustScore(

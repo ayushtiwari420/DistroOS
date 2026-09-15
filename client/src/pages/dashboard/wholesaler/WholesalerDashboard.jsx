@@ -31,6 +31,7 @@ import WholesalerSidebar from "./components/WholesalerSidebar";
 import DashboardOverviewTab from "./views/DashboardOverviewTab";
 import OrdersTab from "./views/OrdersTab";
 import RetailerDetailView from "./views/RetailerDetailView";
+import SmartReorderTab from "./views/SmartReorderTab";
 
 
 // ─────────────────────────────────────────────────────────────
@@ -2764,6 +2765,7 @@ export default function WholesalerDashboard() {
     dashboard: "Dashboard",
     orders: "Orders",
     products: "Products & Inventory",
+    "smart-reorder": "Smart Reorder Recommendations",
     retailers: "Retailers",
     salesmen: "Salesmen",
     credit: "Credit Management",
@@ -2778,6 +2780,8 @@ export default function WholesalerDashboard() {
         return <OrdersTab />;
       case "products":
         return <ProductsTab />;
+      case "smart-reorder":
+        return <SmartReorderTab />;
       case "retailers":
         return <RetailersTab />;
       case "salesmen":

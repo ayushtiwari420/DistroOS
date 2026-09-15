@@ -6,6 +6,7 @@ import {
   getInventoryAnalytics,
   getRetailerInsights,
   getSmartReorderSuggestions,
+  getSmartReorderRecommendations,
   calculateCreditTrustScore,
   getNetworkAggregatedDemand,
 } from './analytics.controller.js'
@@ -23,6 +24,7 @@ router.get('/retailers',                     getRetailerAnalytics)
 router.get('/inventory',                     getInventoryAnalytics)
 router.get('/retailers/:retailerId/insights', getRetailerInsights)
 router.get('/retailer-360/:retailerId',       getRetailerInsights)
+router.get('/reorder-recommendations',       getSmartReorderRecommendations)
 
 // ── Backwards Compatible Endpoints ──
 router.get('/smart-reorder',                 getSmartReorderSuggestions)
