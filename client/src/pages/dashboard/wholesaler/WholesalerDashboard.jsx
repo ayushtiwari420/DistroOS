@@ -2779,7 +2779,7 @@ export default function WholesalerDashboard() {
   const renderContent = () => {
     switch (active) {
       case "dashboard":
-        return <DashboardOverviewTab />;
+        return <DashboardOverviewTab onNavigate={setActive} />;
       case "orders":
         return <OrdersTab />;
       case "products":
@@ -2798,7 +2798,7 @@ export default function WholesalerDashboard() {
       case "account":
         return <AccountProfile />;
       default:
-        return <DashboardOverviewTab />;
+        return <DashboardOverviewTab onNavigate={setActive} />;
     }
   };
 

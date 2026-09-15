@@ -11,6 +11,7 @@ import {
   calculateCreditTrustScore,
   getCreditIntelligence,
   getNetworkAggregatedDemand,
+  getCommandCenter,
 } from './analytics.controller.js'
 import { protect, authorize } from '../../middleware/auth.middleware.js'
 
@@ -19,6 +20,7 @@ const router = express.Router()
 router.use(protect, authorize('wholesaler'))
 
 // ── Intelligence Foundation REST Endpoints ──
+router.get('/command-center',                getCommandCenter)
 router.get('/dashboard',                     getExecutiveDashboardAnalytics)
 router.get('/overview',                      getExecutiveDashboardAnalytics)
 router.get('/products',                      getProductAnalytics)
