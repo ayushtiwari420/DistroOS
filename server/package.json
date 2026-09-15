@@ -4,7 +4,7 @@
   "main": "server.js",
   "type": "module",
   "scripts": {
-    "test": "node --test tests/p1_backend.test.js tests/intelligence_foundation.test.js tests/retailer_360_integration.test.js tests/smart_reorder.test.js",
+    "test": "node --test tests/p1_backend.test.js tests/intelligence_foundation.test.js tests/retailer_360_integration.test.js tests/smart_reorder.test.js tests/inventory_intelligence.test.js",
     "start": "node server.js",
     "dev": "nodemon server.js"
   },

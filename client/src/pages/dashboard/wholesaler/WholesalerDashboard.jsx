@@ -32,6 +32,7 @@ import DashboardOverviewTab from "./views/DashboardOverviewTab";
 import OrdersTab from "./views/OrdersTab";
 import RetailerDetailView from "./views/RetailerDetailView";
 import SmartReorderTab from "./views/SmartReorderTab";
+import InventoryIntelligenceTab from "./views/InventoryIntelligenceTab";
 
 
 // ─────────────────────────────────────────────────────────────
@@ -2765,6 +2766,7 @@ export default function WholesalerDashboard() {
     dashboard: "Dashboard",
     orders: "Orders",
     products: "Products & Inventory",
+    "inventory-intelligence": "Inventory Intelligence",
     "smart-reorder": "Smart Reorder Recommendations",
     retailers: "Retailers",
     salesmen: "Salesmen",
@@ -2780,6 +2782,8 @@ export default function WholesalerDashboard() {
         return <OrdersTab />;
       case "products":
         return <ProductsTab />;
+      case "inventory-intelligence":
+        return <InventoryIntelligenceTab />;
       case "smart-reorder":
         return <SmartReorderTab />;
       case "retailers":

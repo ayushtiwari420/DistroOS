@@ -29,7 +29,16 @@ export const getRetailerAnalytics = async (req, res, next) => {
 
 export const getInventoryAnalytics = async (req, res, next) => {
   try {
-    const data = await analyticsService.getInventoryAnalytics(req.user.id)
+    const data = await analyticsService.getInventoryAnalytics(req.user.id, req.query)
+    return res.status(200).json({ success: true, ...data })
+  } catch (err) {
+    next(err)
+  }
+}
+
+export const getInventoryIntelligence = async (req, res, next) => {
+  try {
+    const data = await analyticsService.getInventoryIntelligence(req.user.id, req.query)
     return res.status(200).json({ success: true, ...data })
   } catch (err) {
     next(err)

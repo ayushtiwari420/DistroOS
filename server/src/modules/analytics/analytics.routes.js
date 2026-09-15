@@ -4,6 +4,7 @@ import {
   getProductAnalytics,
   getRetailerAnalytics,
   getInventoryAnalytics,
+  getInventoryIntelligence,
   getRetailerInsights,
   getSmartReorderSuggestions,
   getSmartReorderRecommendations,
@@ -22,6 +23,7 @@ router.get('/overview',                      getExecutiveDashboardAnalytics)
 router.get('/products',                      getProductAnalytics)
 router.get('/retailers',                     getRetailerAnalytics)
 router.get('/inventory',                     getInventoryAnalytics)
+router.get('/inventory-intelligence',        getInventoryIntelligence)
 router.get('/retailers/:retailerId/insights', getRetailerInsights)
 router.get('/retailer-360/:retailerId',       getRetailerInsights)
 router.get('/reorder-recommendations',       getSmartReorderRecommendations)

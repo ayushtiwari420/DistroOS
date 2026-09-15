@@ -402,12 +402,28 @@ export const getRetailerAnalytics = async (wholesalerId, options = {}) => {
 }
 
 /**
- * 4. Inventory Health & Stockout Risk Analytics
+ * 4. Inventory Health & Stockout Risk Analytics (Inventory Intelligence V1)
  */
-export const getInventoryAnalytics = async (wholesalerId) => {
+export const getInventoryIntelligence = async (wholesalerId, options = {}) => {
+  const { search, category, status, sort, sortBy = sort || 'risk', page = 1, limit = 10 } = options
+  const pageNum = Math.max(1, parseInt(page, 10) || 1)
+  const limitNum = Math.max(1, parseInt(limit, 10) || 10)
   const wholesalerObjId = new mongoose.Types.ObjectId(wholesalerId)
-  const products = await Product.find({ wholesaler: wholesalerId }).lean()
 
+  // 1. Fetch products for wholesaler
+  const productFilter = { wholesaler: wholesalerId }
+  if (category) productFilter.category = category
+  if (search) {
+    productFilter.$or = [
+      { name: { $regex: search, $options: 'i' } },
+      { category: { $regex: search, $options: 'i' } },
+      { sku: { $regex: search, $options: 'i' } },
+    ]
+  }
+
+  const products = await Product.find(productFilter).lean()
+
+  // 2. Fetch sales metrics in the last 30 days (excluding cancelled orders)
   const thirtyDaysAgo = new Date()
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
 
@@ -415,7 +431,7 @@ export const getInventoryAnalytics = async (wholesalerId) => {
     {
       $match: {
         wholesaler: wholesalerObjId,
-        status: 'delivered',
+        status: { $ne: 'cancelled' },
         createdAt: { $gte: thirtyDaysAgo },
       },
     },
@@ -424,59 +440,252 @@ export const getInventoryAnalytics = async (wholesalerId) => {
       $group: {
         _id: '$items.product',
         unitsSold30Days: { $sum: '$items.quantity' },
+        totalRevenue30Days: { $sum: '$items.totalPrice' },
+        orderCount30Days: { $sum: 1 },
+        lastSaleDate: { $max: '$createdAt' },
       },
     },
   ])
 
   const sales30Map = {}
   sales30Agg.forEach((item) => {
-    sales30Map[item._id.toString()] = item.unitsSold30Days
+    sales30Map[item._id.toString()] = item
   })
 
+  // Summary Counters
+  let totalUnits = 0
+  let inventoryCostValue = 0
+  let potentialSalesValue = 0
   let lowStockCount = 0
   let outOfStockCount = 0
-  let totalDeficitUnits = 0
+  let fastMovingCount = 0
+  let slowMovingCount = 0
+  let noRecentSalesCount = 0
+  let stockoutRiskCount = 0
+  let watchCount = 0
+  let safeCount = 0
+  let insufficientDataCount = 0
 
-  const inventoryHealth = products.map((p) => {
+  const allItems = []
+
+  for (const p of products) {
     const pIdStr = p._id.toString()
-    const stock = p.stock || 0
-    const lowStockAt = p.lowStockAt || 10
-    const unitsSold = sales30Map[pIdStr] || 0
-    const dailyVelocity = Number((unitsSold / 30).toFixed(2))
+    const stock = Math.max(0, p.stock || 0)
+    const lowStockAt = Math.max(0, p.lowStockAt || 0)
+    const costPrice = p.costPrice || 0
+    const price = p.price || 0
+
+    const salesData = sales30Map[pIdStr] || {
+      unitsSold30Days: 0,
+      totalRevenue30Days: 0,
+      orderCount30Days: 0,
+      lastSaleDate: null,
+    }
+
+    const unitsSold30Days = salesData.unitsSold30Days || 0
+    const totalRevenue30Days = salesData.totalRevenue30Days || 0
+    const orderCount30Days = salesData.orderCount30Days || 0
+    const lastSaleDate = salesData.lastSaleDate || null
+
+    const dailySalesVelocity = Number((unitsSold30Days / 30).toFixed(2))
+    const itemCostValue = stock * costPrice
+    const itemSalesValue = stock * price
+
+    totalUnits += stock
+    inventoryCostValue += itemCostValue
+    potentialSalesValue += itemSalesValue
+
+    const isLowStock = stock <= lowStockAt
+    const shortageAmount = Math.max(0, lowStockAt - stock)
 
     if (stock === 0) outOfStockCount++
-    else if (stock <= lowStockAt) lowStockCount++
+    if (isLowStock) lowStockCount++
 
-    const deficit = Math.max(0, lowStockAt - stock)
-    totalDeficitUnits += deficit
-
-    const estimatedDaysToStockout = dailyVelocity > 0 ? Math.round(stock / dailyVelocity) : 999
-    const reorderRecommended = deficit > 0 || estimatedDaysToStockout <= 7 || stock <= lowStockAt
-
-    return {
-      productId: p._id,
-      productName: p.name,
-      category: p.category || 'General',
-      currentStock: stock,
-      lowStockAt,
-      stockDeficit: deficit,
-      unitsSold30Days: unitsSold,
-      dailyVelocity,
-      estimatedDaysToStockout,
-      reorderRecommended,
+    // Movement status classification
+    let movementStatus = 'NORMAL'
+    if (unitsSold30Days === 0) {
+      movementStatus = 'NO_RECENT_SALES'
+      noRecentSalesCount++
+    } else if (dailySalesVelocity >= 3.0) {
+      movementStatus = 'FAST_MOVING'
+      fastMovingCount++
+    } else if (dailySalesVelocity < 0.2) {
+      movementStatus = 'SLOW_MOVING'
+      slowMovingCount++
+    } else {
+      movementStatus = 'NORMAL'
     }
-  })
 
-  inventoryHealth.sort((a, b) => a.estimatedDaysToStockout - b.estimatedDaysToStockout)
+    // Stockout risk classification & estimated days of stock
+    let estimatedDaysOfStock = 999
+    let stockoutRiskStatus = 'SAFE'
+    let explanation = ''
+
+    if (stock === 0) {
+      estimatedDaysOfStock = 0
+      stockoutRiskStatus = 'STOCKOUT_RISK'
+      stockoutRiskCount++
+      explanation = `Out of stock! Low-stock threshold is ${lowStockAt} ${p.unit || 'units'}.`
+    } else if (isLowStock) {
+      estimatedDaysOfStock = dailySalesVelocity > 0 ? Math.round(stock / dailySalesVelocity) : 999
+      stockoutRiskStatus = 'STOCKOUT_RISK'
+      stockoutRiskCount++
+      explanation = `Stockout Risk: Current stock (${stock} ${p.unit || 'units'}) is at or below low-stock threshold (${lowStockAt} ${p.unit || 'units'}).`
+    } else if (dailySalesVelocity === 0) {
+      estimatedDaysOfStock = 999
+      stockoutRiskStatus = 'INSUFFICIENT_DATA'
+      insufficientDataCount++
+      explanation = `Stock is ${stock} ${p.unit || 'units'}. No sales recorded in the last 30 days to calculate depletion velocity.`
+    } else {
+      estimatedDaysOfStock = Math.round(stock / dailySalesVelocity)
+      if (estimatedDaysOfStock <= 7) {
+        stockoutRiskStatus = 'STOCKOUT_RISK'
+        stockoutRiskCount++
+        explanation = `Stockout Risk: Current stock is ${stock} ${p.unit || 'units'} with sales velocity of ${dailySalesVelocity} ${p.unit || 'units'}/day (est. ${estimatedDaysOfStock} days remaining).`
+      } else if (estimatedDaysOfStock <= 14) {
+        stockoutRiskStatus = 'WATCH'
+        watchCount++
+        explanation = `Watch: Stock of ${stock} ${p.unit || 'units'} estimated to last ${estimatedDaysOfStock} days at current velocity (${dailySalesVelocity} ${p.unit || 'units'}/day).`
+      } else {
+        stockoutRiskStatus = 'SAFE'
+        safeCount++
+        explanation = `Safe: Healthy stock level (${stock} ${p.unit || 'units'}) with estimated coverage of ${estimatedDaysOfStock} days.`
+      }
+    }
+
+    if (movementStatus === 'SLOW_MOVING') {
+      explanation += ` Slow-moving: Only ${unitsSold30Days} ${p.unit || 'units'} sold in the last 30 days.`
+    } else if (movementStatus === 'NO_RECENT_SALES' && stock > 0) {
+      explanation += ` No recent sales in the last 30 days.`
+    }
+
+    const item = {
+      product: {
+        id: p._id,
+        name: p.name,
+        sku: p.sku || '',
+        category: p.category || 'General',
+        unit: p.unit || 'piece',
+        price,
+        costPrice,
+        stock,
+        lowStockAt,
+        isActive: p.isActive,
+      },
+      stock,
+      lowStockAt,
+      isLowStock,
+      shortageAmount,
+      unitsSold30Days,
+      totalRevenue30Days,
+      orderCount30Days,
+      dailySalesVelocity,
+      lastSaleDate,
+      estimatedDaysOfStock,
+      movementStatus,
+      stockoutRiskStatus,
+      inventoryCostValue: itemCostValue,
+      potentialSalesValue: itemSalesValue,
+      explanation,
+    }
+
+    // Status filter matching
+    if (status) {
+      const uStatus = status.toUpperCase()
+      let matchesFilter = false
+      if (uStatus === 'LOW_STOCK' && isLowStock) matchesFilter = true
+      else if (uStatus === 'OUT_OF_STOCK' && stock === 0) matchesFilter = true
+      else if (uStatus === movementStatus) matchesFilter = true
+      else if (uStatus === stockoutRiskStatus) matchesFilter = true
+
+      if (!matchesFilter) continue
+    }
+
+    allItems.push(item)
+  }
+
+  // 3. Sorting
+  if (sortBy === 'risk') {
+    const riskOrder = { STOCKOUT_RISK: 1, WATCH: 2, INSUFFICIENT_DATA: 3, SAFE: 4 }
+    allItems.sort((a, b) => {
+      const rA = riskOrder[a.stockoutRiskStatus] || 99
+      const rB = riskOrder[b.stockoutRiskStatus] || 99
+      if (rA !== rB) return rA - rB
+      return a.estimatedDaysOfStock - b.estimatedDaysOfStock
+    })
+  } else if (sortBy === 'velocity') {
+    allItems.sort((a, b) => b.dailySalesVelocity - a.dailySalesVelocity)
+  } else if (sortBy === 'value') {
+    allItems.sort((a, b) => b.inventoryCostValue - a.inventoryCostValue)
+  } else if (sortBy === 'stock') {
+    allItems.sort((a, b) => a.stock - b.stock)
+  } else if (sortBy === 'revenue') {
+    allItems.sort((a, b) => b.totalRevenue30Days - a.totalRevenue30Days)
+  } else if (sortBy === 'name') {
+    allItems.sort((a, b) => a.product.name.localeCompare(b.product.name))
+  }
+
+  const total = allItems.length
+  const startIndex = (pageNum - 1) * limitNum
+  const paginatedItems = allItems.slice(startIndex, startIndex + limitNum)
+  const totalPages = Math.ceil(total / limitNum) || 1
 
   return {
     summary: {
       totalProducts: products.length,
+      totalUnits,
+      inventoryCostValue,
+      potentialSalesValue,
       lowStockCount,
       outOfStockCount,
-      totalDeficitUnits,
+      fastMovingCount,
+      slowMovingCount,
+      noRecentSalesCount,
+      stockoutRiskCount,
+      watchCount,
+      safeCount,
+      insufficientDataCount,
     },
-    inventoryHealth,
+    products: paginatedItems,
+    pagination: {
+      page: pageNum,
+      limit: limitNum,
+      total,
+      totalPages,
+      hasNextPage: pageNum < totalPages,
+      hasPreviousPage: pageNum > 1,
+    },
+  }
+}
+
+export const getInventoryAnalytics = async (wholesalerId, options = {}) => {
+  const data = await getInventoryIntelligence(wholesalerId, { ...options, limit: 100 })
+  return {
+    summary: {
+      totalProducts: data.summary.totalProducts,
+      lowStockCount: data.summary.lowStockCount,
+      outOfStockCount: data.summary.outOfStockCount,
+      totalDeficitUnits: data.products.reduce((acc, p) => acc + p.shortageAmount, 0),
+      inventoryCostValue: data.summary.inventoryCostValue,
+      potentialSalesValue: data.summary.potentialSalesValue,
+    },
+    inventoryHealth: data.products.map((item) => ({
+      productId: item.product.id,
+      productName: item.product.name,
+      category: item.product.category,
+      currentStock: item.stock,
+      lowStockAt: item.lowStockAt,
+      stockDeficit: item.shortageAmount,
+      unitsSold30Days: item.unitsSold30Days,
+      dailyVelocity: item.dailySalesVelocity,
+      estimatedDaysToStockout: item.estimatedDaysOfStock,
+      reorderRecommended: item.stockoutRiskStatus === 'STOCKOUT_RISK' || item.isLowStock,
+      movementStatus: item.movementStatus,
+      stockoutRiskStatus: item.stockoutRiskStatus,
+      inventoryCostValue: item.inventoryCostValue,
+      potentialSalesValue: item.potentialSalesValue,
+      explanation: item.explanation,
+    })),
   }
 }
 
