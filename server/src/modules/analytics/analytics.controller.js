@@ -107,3 +107,12 @@ export const getNetworkAggregatedDemand = async (req, res, next) => {
     next(err)
   }
 }
+
+export const getCommandCenter = async (req, res, next) => {
+  try {
+    const data = await analyticsService.getCommandCenter(req.user.id)
+    return res.status(200).json({ success: true, ...data })
+  } catch (err) {
+    next(err)
+  }
+}

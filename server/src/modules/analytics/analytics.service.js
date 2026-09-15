@@ -1441,3 +1441,138 @@ export const getCreditIntelligence = async (wholesalerId, options = {}) => {
     },
   }
 }
+
+/**
+ * 7. DistroOS Command Center Operational Consolidation V1
+ */
+export const getCommandCenter = async (wholesalerId) => {
+  const wholesalerObjId = new mongoose.Types.ObjectId(wholesalerId)
+  const todayStart = new Date()
+  todayStart.setHours(0, 0, 0, 0)
+
+  // Execute pre-built intelligence services concurrently without code duplication
+  const [
+    execDashboard,
+    reorderRes,
+    inventoryRes,
+    creditRes,
+    todayOrdersAgg,
+    recentOrders,
+    recentCreditTxs,
+  ] = await Promise.all([
+    getExecutiveDashboardAnalytics(wholesalerId),
+    getSmartReorderRecommendations(wholesalerId, { limit: 5 }),
+    getInventoryIntelligence(wholesalerId, { limit: 5, sort: 'risk' }),
+    getCreditIntelligence(wholesalerId, { limit: 5, sort: 'overdue' }),
+    Order.aggregate([
+      { $match: { wholesaler: wholesalerObjId, createdAt: { $gte: todayStart } } },
+      {
+        $group: {
+          _id: null,
+          todayOrders: { $sum: 1 },
+          todayRevenue: {
+            $sum: { $cond: [{ $eq: ['$status', 'delivered'] }, '$totalAmount', 0] },
+          },
+        },
+      },
+    ]),
+    Order.find({ wholesaler: wholesalerObjId })
+      .select('orderNumber totalAmount status createdAt retailer items')
+      .populate('retailer', 'name businessName')
+      .sort({ createdAt: -1 })
+      .limit(5)
+      .lean(),
+    Credit.aggregate([
+      { $match: { wholesaler: wholesalerObjId } },
+      { $unwind: '$transactions' },
+      { $sort: { 'transactions.date': -1 } },
+      { $limit: 5 },
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'retailer',
+          foreignField: '_id',
+          as: 'retailerObj',
+        },
+      },
+      {
+        $project: {
+          transaction: '$transactions',
+          retailerName: { $arrayElemAt: ['$retailerObj.businessName', 0] },
+          contactName: { $arrayElemAt: ['$retailerObj.name', 0] },
+        },
+      },
+    ]),
+  ])
+
+  // Process recent activity events from real database records
+  const recentActivity = []
+
+  recentOrders.forEach((o) => {
+    recentActivity.push({
+      id: `ord-${o._id}`,
+      type: 'order',
+      title: `Order #${o.orderNumber || o._id.toString().slice(-6)}`,
+      subtitle: o.retailer?.businessName || o.retailer?.name || 'Retailer',
+      amount: o.totalAmount || 0,
+      status: o.status,
+      date: o.createdAt,
+    })
+  })
+
+  recentCreditTxs.forEach((t) => {
+    if (t.transaction) {
+      recentActivity.push({
+        id: `tx-${t.transaction._id}`,
+        type: t.transaction.type === 'credit' ? 'repayment' : 'credit_debit',
+        title: t.transaction.type === 'credit' ? 'Payment Received' : 'Credit Balance Adjusted',
+        subtitle: t.retailerName || t.contactName || 'Retailer',
+        amount: t.transaction.amount || 0,
+        note: t.transaction.note || '',
+        date: t.transaction.date || new Date(),
+      })
+    }
+  })
+
+  recentActivity.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+
+  // Consolidate snapshot metrics
+  const todayRev = todayOrdersAgg[0]?.todayRevenue || 0
+  const todayOrds = todayOrdersAgg[0]?.todayOrders || 0
+
+  const snapshot = {
+    todayRevenue: todayRev,
+    todayOrders: todayOrds,
+    thirtyDayRevenue: execDashboard.kpis?.totalRevenue || 0,
+    totalOutstandingCredit: creditRes.summary?.totalOutstanding || 0,
+    activeRetailers: execDashboard.kpis?.activeRetailers || 0,
+  }
+
+  // Consolidate actionable attention metrics
+  const reorderDueCount = (reorderRes.recommendations || []).filter((r) => r.status === 'REORDER_DUE').length
+
+  const attention = {
+    stockoutRiskCount: inventoryRes.summary?.stockoutRiskCount || 0,
+    lowStockCount: inventoryRes.summary?.lowStockCount || 0,
+    reorderDueCount,
+    creditOverdueCount: creditRes.summary?.retailersOverdue || 0,
+    totalOverdueAmount: creditRes.summary?.totalOverdue || 0,
+    highExposureCount: creditRes.summary?.highExposureAccounts || 0,
+    totalAttentionItems:
+      (inventoryRes.summary?.stockoutRiskCount || 0) +
+      (inventoryRes.summary?.lowStockCount || 0) +
+      reorderDueCount +
+      (creditRes.summary?.retailersOverdue || 0) +
+      (creditRes.summary?.highExposureAccounts || 0),
+  }
+
+  return {
+    attention,
+    snapshot,
+    smartReorder: (reorderRes.recommendations || []).slice(0, 5),
+    inventoryAttention: (inventoryRes.products || []).slice(0, 5),
+    creditAttention: (creditRes.accounts || []).slice(0, 5),
+    salesTrend: execDashboard.monthlyTrends || execDashboard.revenueChart || [],
+    recentActivity: recentActivity.slice(0, 7),
+  }
+}
