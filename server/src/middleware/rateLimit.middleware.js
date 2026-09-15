@@ -33,7 +33,7 @@ export const createRateLimiter = ({ windowMs = 15 * 60 * 1000, max = 100, messag
 
 export const authLimiter = createRateLimiter({
   windowMs: 15 * 60 * 1000,
-  max: 10,
+  max: 100,
   message: 'Too many authentication attempts. Please try again after 15 minutes.',
 })
 

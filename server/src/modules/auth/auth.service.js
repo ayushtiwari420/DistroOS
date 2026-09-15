@@ -29,7 +29,7 @@ export const registerUser = async (data, res) => {
     businessName,
     city,
     phone,
-    status: role === 'wholesaler' ? 'pending' : 'active',
+    status: 'active',
   })
 
   const accessToken  = generateAccessToken(user)
