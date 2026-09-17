@@ -1,32 +1,22 @@
-import { useState ,useEffect} from "react";
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import Badge from "../../../components/ui/Badges";
 import StatCard from "../../../components/ui/StatCard";
 import { useAuth } from "../../../context/AuthContext";
-
-import { getAccessToken } from "../../../context/AuthContext";
+import { apiClient as api } from "../../../api/client";
 import AccountProfile from '../../../components/shared/AccountProfile';
-
-const BASE = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
+import AccountSystemDropdown from '../../../components/shared/AccountSystemDropdown';
 
 const fetchRetailerOrders = async (limit = 20) => {
-  const token = getAccessToken();
   const params = new URLSearchParams({ limit: String(limit) });
-  const res = await fetch(`${BASE}/orders?${params.toString()}`, {
-    headers: { Authorization: `Bearer ${token}` },
-    credentials: "include",
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.message || "Could not load orders.");
+  const data = await api(`/orders?${params.toString()}`);
   return data.orders || [];
 };
 
+
 const formatOrderDate = (value) => {
   if (!value) return "-";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "-";
-
-  return date.toLocaleDateString("en-IN", {
+  return new Date(value).toLocaleDateString("en-IN", {
     day: "numeric",
     month: "short",
     year: "numeric",
@@ -48,33 +38,34 @@ const formatItemCount = (items = []) => {
   return `${count} item${count === 1 ? "" : "s"}`;
 };
 
-function useRetailerOrders(limit = 20) {
+function useRetailerOrders() {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [apiError, setApiError] = useState("");
+  const [apiError, setApiError] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
-    let ignore = false;
-
-    const loadOrders = async () => {
-      setLoading(true);
-      setApiError("");
-      try {
-        const nextOrders = await fetchRetailerOrders(limit);
-        if (!ignore) setOrders(nextOrders);
-      } catch (e) {
-        if (!ignore) setApiError(e.message);
-      } finally {
-        if (!ignore) setLoading(false);
-      }
-    };
-
-    loadOrders();
+    let active = true;
+    setLoading(true);
+    fetchRetailerOrders(50)
+      .then((data) => {
+        if (active) {
+          setOrders(data);
+          setApiError(null);
+        }
+      })
+      .catch((err) => {
+        if (active) {
+          setApiError(err.message);
+        }
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
     return () => {
-      ignore = true;
+      active = false;
     };
-  }, [limit, refreshKey]);
+  }, [refreshKey]);
 
   return {
     orders,
@@ -401,21 +392,7 @@ function PlaceOrder({ onOrderPlaced }) {
         params.set("category", category);
       }
 
-      const res = await fetch(
-        `${BASE}/products?${params.toString()}`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-          credentials: "include",
-        }
-      );
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.message);
-      }
+      const data = await api(`/products?${params.toString()}`);
 
       setProducts(data.products || []);
 
@@ -480,25 +457,18 @@ function PlaceOrder({ onOrderPlaced }) {
     setSubmitting(true);
     setApiError("");
     try {
-      const token = getAccessToken();
       const items = cartItems.map((i) => ({
         productId: productId(i),
         quantity: i.qty,
       }));
-      const res = await fetch(`${BASE}/orders`, {
+      const data = await api('/orders', {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        credentials: "include",
         body: JSON.stringify({ items, paymentType }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message);
       onOrderPlaced?.(data.order);
       setSubmitted(true);
       setCart({});
+
     } catch (e) {
       setApiError(e.message);
     } finally {
@@ -1883,24 +1853,7 @@ export default function RetailerDashboard() {
             >
               🛒 New Order
             </button>
-            <div
-              style={{
-                width: 36,
-                height: 36,
-                borderRadius: "50%",
-                background: "var(--amber-dim)",
-                border: "2px solid var(--amber)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: "0.7rem",
-                fontWeight: 800,
-                color: "var(--amber)",
-                cursor: "pointer",
-              }}
-            >
-              PK
-            </div>
+            <AccountSystemDropdown />
           </div>
         </header>
 
