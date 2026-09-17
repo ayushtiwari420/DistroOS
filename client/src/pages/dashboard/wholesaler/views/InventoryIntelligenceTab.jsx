@@ -21,6 +21,7 @@ import {
   Zap,
 } from 'lucide-react'
 import { apiClient as api } from '../../../../api/client'
+import Button from '../../../../components/ui/Button'
 
 const fmtCurrency = (n) => `₹${Number(n || 0).toLocaleString('en-IN')}`
 
@@ -141,6 +142,7 @@ const MovementBadge = ({ status }) => {
 export default function InventoryIntelligenceTab() {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
 
   // Filter & Search Controls
@@ -153,8 +155,9 @@ export default function InventoryIntelligenceTab() {
   // Selected item modal drawer
   const [selectedItem, setSelectedItem] = useState(null)
 
-  const fetchIntelligence = useCallback(async () => {
-    setLoading(true)
+  const fetchIntelligence = useCallback(async (isManualRefresh = false) => {
+    if (isManualRefresh) setRefreshing(true)
+    else setLoading(true)
     setError('')
     try {
       const params = new URLSearchParams()
@@ -175,6 +178,7 @@ export default function InventoryIntelligenceTab() {
       setError(err.message || 'Error connecting to Inventory Intelligence service.')
     } finally {
       setLoading(false)
+      setRefreshing(false)
     }
   }, [page, sortBy, statusFilter, categoryFilter, searchQuery])
 
@@ -192,51 +196,27 @@ export default function InventoryIntelligenceTab() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      {/* Header Banner */}
-      <div
-        style={{
-          background: 'linear-gradient(135deg, #0F172A 0%, #1E293B 100%)',
-          borderRadius: 14,
-          padding: '24px 28px',
-          color: '#FFFFFF',
-          boxShadow: '0 10px 25px -5px rgba(15, 23, 42, 0.4)',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 14,
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div
-            style={{
-              width: 40,
-              height: 40,
-              borderRadius: 10,
-              background: 'rgba(255,255,255,0.12)',
-              backdropFilter: 'blur(4px)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: '#38BDF8',
-            }}
+      {/* Header Bar */}
+      <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="space-y-1">
+          <h2 className="text-xl font-bold font-display text-slate-900 tracking-tight">
+            Inventory Intelligence
+          </h2>
+          <p className="text-xs text-slate-500">
+            Stockout risk evaluation, sales velocity tracking, and inventory valuation.
+          </p>
+        </div>
+
+        <div className="flex items-center gap-3 shrink-0">
+          <Button
+            variant="outline"
+            size="sm"
+            icon={RefreshCw}
+            onClick={() => fetchIntelligence(true)}
+            loading={refreshing}
           >
-            <Boxes size={22} />
-          </div>
-          <div>
-            <h2
-              style={{
-                fontFamily: 'Plus Jakarta Sans, sans-serif',
-                fontSize: '1.25rem',
-                fontWeight: 800,
-                letterSpacing: '-0.02em',
-                margin: 0,
-              }}
-            >
-              Inventory Intelligence V1
-            </h2>
-            <p style={{ fontSize: '0.84rem', color: '#94A3B8', margin: '2px 0 0 0' }}>
-              Actionable stockout risk evaluation, sales velocity tracking, movement classification, and inventory valuation.
-            </p>
-          </div>
+            Refresh
+          </Button>
         </div>
       </div>
 
