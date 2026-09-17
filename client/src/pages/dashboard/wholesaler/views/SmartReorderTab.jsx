@@ -18,6 +18,7 @@ import {
   ChevronRight,
 } from 'lucide-react'
 import { apiClient as api } from '../../../../api/client'
+import Button from '../../../../components/ui/Button'
 
 const fmtCurrency = (n) => `₹${Number(n || 0).toLocaleString('en-IN')}`
 
@@ -89,6 +90,7 @@ export default function SmartReorderTab({ onNavigateToOrder }) {
     hasPreviousPage: false,
   })
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
 
   // Filter state
@@ -96,8 +98,9 @@ export default function SmartReorderTab({ onNavigateToOrder }) {
   const [searchQuery, setSearchQuery] = useState('')
   const [page, setPage] = useState(1)
 
-  const fetchRecommendations = useCallback(async () => {
-    setLoading(true)
+  const fetchRecommendations = useCallback(async (isManualRefresh = false) => {
+    if (isManualRefresh) setRefreshing(true)
+    else setLoading(true)
     setError('')
     try {
       const params = new URLSearchParams()
@@ -130,6 +133,7 @@ export default function SmartReorderTab({ onNavigateToOrder }) {
       setError(err.message || 'An error occurred while loading recommendations.')
     } finally {
       setLoading(false)
+      setRefreshing(false)
     }
   }, [page, statusFilter, searchQuery])
 
@@ -149,51 +153,27 @@ export default function SmartReorderTab({ onNavigateToOrder }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      {/* Header & Description Banner */}
-      <div
-        style={{
-          background: 'linear-gradient(135deg, #1E1B4B 0%, #312E81 100%)',
-          borderRadius: 14,
-          padding: '24px 28px',
-          color: '#FFFFFF',
-          boxShadow: '0 10px 25px -5px rgba(49, 46, 129, 0.3)',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 12,
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div
-            style={{
-              width: 36,
-              height: 36,
-              borderRadius: 10,
-              background: 'rgba(255,255,255,0.15)',
-              backdropFilter: 'blur(4px)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: '#FDE047',
-            }}
+      {/* Header Bar */}
+      <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="space-y-1">
+          <h2 className="text-xl font-bold font-display text-slate-900 tracking-tight">
+            Smart Reorder Recommendations
+          </h2>
+          <p className="text-xs text-slate-500">
+            Automated reorder timing and quantity suggestions based on purchase cycles.
+          </p>
+        </div>
+
+        <div className="flex items-center gap-3 shrink-0">
+          <Button
+            variant="outline"
+            size="sm"
+            icon={RefreshCw}
+            onClick={() => fetchRecommendations(true)}
+            loading={refreshing}
           >
-            <Sparkles size={20} />
-          </div>
-          <div>
-            <h2
-              style={{
-                fontFamily: 'Plus Jakarta Sans, sans-serif',
-                fontSize: '1.25rem',
-                fontWeight: 800,
-                letterSpacing: '-0.02em',
-                margin: 0,
-              }}
-            >
-              Smart Reorder Recommendations V1
-            </h2>
-            <p style={{ fontSize: '0.84rem', color: '#C7D2FE', margin: '2px 0 0 0' }}>
-              Deterministic predictive engine analyzing historical purchase cycles to suggest optimal reorder timing and quantities.
-            </p>
-          </div>
+            Refresh
+          </Button>
         </div>
       </div>
 
