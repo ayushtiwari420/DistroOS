@@ -18,10 +18,38 @@ import {
   X,
   Plus,
   ArrowUpRight,
+  ShieldAlert,
+  Edit2,
+  Receipt,
+  ExternalLink,
+  ShieldCheck,
+  Building2,
+  Store
 } from 'lucide-react'
-import { apiClient as api } from '../../../../api/client'
+import Button from '../../../../components/ui/Button'
+import Input from '../../../../components/ui/Input'
+import { Card, CardContent, CardHeader, CardTitle } from '../../../../components/ui/Card'
+import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell, TablePagination } from '../../../../components/ui/Table'
+import Modal, { ModalHeader, ModalTitle, ModalBody, ModalFooter } from '../../../../components/ui/Modal'
+import { SkeletonTable, SkeletonCard } from '../../../../components/ui/Skeleton'
+import EmptyState from '../../../../components/ui/EmptyState'
+import * as svc from '../../../../services/wholesaler.service'
+import RetailerDetailView from './RetailerDetailView'
 
-const fmtCurrency = (n) => `₹${Number(n || 0).toLocaleString('en-IN')}`
+const fmt = (n) => `₹${Number(n || 0).toLocaleString('en-IN')}`
+
+const formatDate = (dateStr) => {
+  if (!dateStr) return 'No payments yet'
+  try {
+    return new Date(dateStr).toLocaleDateString('en-IN', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric'
+    })
+  } catch {
+    return 'No payments yet'
+  }
+}
 
 const HealthBadge = ({ status }) => {
   const configs = {
@@ -47,9 +75,9 @@ const HealthBadge = ({ status }) => {
       label: 'Watch List',
     },
     HEALTHY: {
-      bg: '#F0FDF4',
-      color: '#16A34A',
-      border: '#86EFAC',
+      bg: '#EFF6FF',
+      color: '#2563EB',
+      border: '#BFDBFE',
       icon: CheckCircle2,
       label: 'Healthy',
     },
@@ -87,768 +115,897 @@ const HealthBadge = ({ status }) => {
   )
 }
 
-export default function CreditIntelligenceTab({ onOpenRepayModal }) {
+export default function CreditIntelligenceTab({ onNavigateRetailer }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
+  const [refreshing, setRefreshing] = useState(false)
+  const [error, setError] = useState(null)
+  const [selectedRetailerId, setSelectedRetailerId] = useState(null)
 
-  // Filter & Search Controls
-  const [searchQuery, setSearchQuery] = useState('')
+  // Search & Filter State
+  const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('ALL')
   const [sortBy, setSortBy] = useState('outstanding')
   const [page, setPage] = useState(1)
+  const limit = 10
 
-  // Selected Account Modal
-  const [selectedAccount, setSelectedAccount] = useState(null)
+  // Repayment Modal State
+  const [repayModalOpen, setRepayModalOpen] = useState(false)
+  const [selectedRepayAccount, setSelectedRepayAccount] = useState(null)
+  const [repayAmount, setRepayAmount] = useState('')
+  const [repayNote, setRepayNote] = useState('')
+  const [submittingRepay, setSubmittingRepay] = useState(false)
+  const [repayError, setRepayError] = useState(null)
 
-  const fetchCreditIntelligence = useCallback(async () => {
-    setLoading(true)
-    setError('')
+  // Credit Limit Adjustment Modal State
+  const [limitModalOpen, setLimitModalOpen] = useState(false)
+  const [selectedLimitAccount, setSelectedLimitAccount] = useState(null)
+  const [newCreditLimit, setNewCreditLimit] = useState('')
+  const [submittingLimit, setSubmittingLimit] = useState(false)
+  const [limitError, setLimitError] = useState(null)
+
+  // Debounce search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search)
+      setPage(1)
+    }, 350)
+    return () => clearTimeout(timer)
+  }, [search])
+
+  // Fetch Credit Intelligence data from backend
+  const loadData = useCallback(async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true)
+    else setLoading(true)
+    setError(null)
+
     try {
-      const params = new URLSearchParams()
-      params.set('page', page.toString())
-      params.set('limit', '10')
-      params.set('sort', sortBy)
-      if (statusFilter !== 'ALL') params.set('status', statusFilter)
-      if (searchQuery.trim()) params.set('search', searchQuery.trim())
+      const queryParams = new URLSearchParams()
+      if (debouncedSearch) queryParams.set('search', debouncedSearch)
+      if (statusFilter !== 'ALL') queryParams.set('status', statusFilter)
+      if (sortBy) queryParams.set('sortBy', sortBy)
+      queryParams.set('page', String(page))
+      queryParams.set('limit', String(limit))
 
-      const res = await api(`/analytics/credit-intelligence?${params.toString()}`)
-      if (res && res.success) {
-        setData(res)
-      } else {
-        setError(res?.message || 'Failed to load Credit Intelligence data.')
-      }
+      const queryString = queryParams.toString() ? `?${queryParams.toString()}` : ''
+      const res = await svc.getCreditIntelligence(queryString)
+      setData(res)
     } catch (err) {
-      setError(err.message || 'Error fetching Credit Intelligence analytics.')
+      setError(err.message || 'Failed to load credit intelligence platform data.')
     } finally {
       setLoading(false)
+      setRefreshing(false)
     }
-  }, [page, sortBy, statusFilter, searchQuery])
+  }, [debouncedSearch, statusFilter, sortBy, page])
 
   useEffect(() => {
-    fetchCreditIntelligence()
-  }, [fetchCreditIntelligence])
+    loadData()
+  }, [loadData])
 
-  const summary = data?.summary || {}
+  // Handlers for Repayment Modal
+  const openRepayModal = (account) => {
+    setSelectedRepayAccount(account)
+    setRepayAmount(account.outstanding ? String(account.outstanding) : '')
+    setRepayNote('')
+    setRepayError(null)
+    setRepayModalOpen(true)
+  }
+
+  const handleRepaySubmit = async (e) => {
+    e.preventDefault()
+    setRepayError(null)
+
+    const amtNum = Number(repayAmount)
+    if (!amtNum || amtNum <= 0) {
+      setRepayError('Please enter a valid repayment amount greater than zero.')
+      return
+    }
+
+    if (!selectedRepayAccount || !selectedRepayAccount.retailer?.id) {
+      setRepayError('Invalid retailer account selected.')
+      return
+    }
+
+    setSubmittingRepay(true)
+    try {
+      await svc.recordRepayment(selectedRepayAccount.retailer.id, amtNum, repayNote.trim())
+      setRepayModalOpen(false)
+      loadData(true)
+    } catch (err) {
+      setRepayError(err.message || 'Failed to record repayment.')
+    } finally {
+      setSubmittingRepay(false)
+    }
+  }
+
+  // Handlers for Credit Limit Modal
+  const openLimitModal = (account) => {
+    setSelectedLimitAccount(account)
+    setNewCreditLimit(String(account.creditLimit || 0))
+    setLimitError(null)
+    setLimitModalOpen(true)
+  }
+
+  const handleLimitSubmit = async (e) => {
+    e.preventDefault()
+    setLimitError(null)
+
+    const limitNum = Number(newCreditLimit)
+    if (isNaN(limitNum) || limitNum < 0) {
+      setLimitError('Please enter a valid non-negative credit limit.')
+      return
+    }
+
+    if (!selectedLimitAccount || !selectedLimitAccount.retailer?.id) {
+      setLimitError('Invalid retailer account selected.')
+      return
+    }
+
+    setSubmittingLimit(true)
+    try {
+      await svc.updateCreditLimit(selectedLimitAccount.retailer.id, limitNum)
+      setLimitModalOpen(false)
+      loadData(true)
+    } catch (err) {
+      setLimitError(err.message || 'Failed to update credit limit.')
+    } finally {
+      setSubmittingLimit(false)
+    }
+  }
+
+  const handleResetFilters = () => {
+    setSearch('')
+    setDebouncedSearch('')
+    setStatusFilter('ALL')
+    setSortBy('outstanding')
+    setPage(1)
+  }
+
+  // If a retailer is selected for drill-down, render RetailerDetailView
+  if (selectedRetailerId) {
+    return (
+      <RetailerDetailView
+        retailerId={selectedRetailerId}
+        onBack={() => setSelectedRetailerId(null)}
+      />
+    )
+  }
+
+  const handleRetailerClick = (retailerId) => {
+    if (onNavigateRetailer) {
+      onNavigateRetailer(retailerId)
+    } else {
+      setSelectedRetailerId(retailerId)
+    }
+  }
+
+  const summary = data?.summary || {
+    totalCreditAccounts: 0,
+    totalCreditExposure: 0,
+    totalOutstanding: 0,
+    totalAvailableCredit: 0,
+    totalOverdue: 0,
+    averageCreditUtilization: 0,
+    retailersWithCredit: 0,
+    retailersOverdue: 0,
+    highExposureAccounts: 0,
+  }
+
   const accounts = data?.accounts || []
-  const pagination = data?.pagination || { page: 1, totalPages: 1, total: 0, hasNextPage: false, hasPreviousPage: false }
+  const pagination = data?.pagination || { page: 1, limit: 10, total: 0, totalPages: 1 }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      {/* Header Banner */}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20, maxWidth: 1400, margin: '0 auto', width: '100%' }}>
+      {/* PAGE HEADER */}
       <div
         style={{
-          background: 'linear-gradient(135deg, #0284C7 0%, #0369A1 100%)',
-          borderRadius: 14,
-          padding: '24px 28px',
-          color: '#FFFFFF',
-          boxShadow: '0 10px 25px -5px rgba(2, 132, 199, 0.4)',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 14,
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div
-            style={{
-              width: 40,
-              height: 40,
-              borderRadius: 10,
-              background: 'rgba(255,255,255,0.18)',
-              backdropFilter: 'blur(4px)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: '#FFFFFF',
-            }}
-          >
-            <CreditCard size={22} />
-          </div>
-          <div>
-            <h2
-              style={{
-                fontFamily: 'Plus Jakarta Sans, sans-serif',
-                fontSize: '1.25rem',
-                fontWeight: 800,
-                letterSpacing: '-0.02em',
-                margin: 0,
-              }}
-            >
-              Credit Intelligence Platform V1
-            </h2>
-            <p style={{ fontSize: '0.84rem', color: '#E0F2FE', margin: '2px 0 0 0' }}>
-              Actionable credit exposure monitoring, payment consistency metrics, overdue balances, and risk classifications.
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* Summary KPI Overview Cards */}
-      {summary && (
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
-            gap: 14,
-          }}
-        >
-          {/* Total Outstanding & Exposure */}
-          <div
-            style={{
-              background: 'var(--surface)',
-              borderRadius: 12,
-              padding: '16px 20px',
-              border: '1px solid var(--border)',
-              display: 'flex',
-              flexDirection: 'column',
-              justifyContent: 'space-between',
-            }}
-          >
-            <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-              Total Outstanding Due
-            </div>
-            <div style={{ fontSize: '1.35rem', fontWeight: 800, color: 'var(--text)', marginTop: 4 }}>
-              {fmtCurrency(summary.totalOutstanding)}
-            </div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 4 }}>
-              Total Exposure Limit: <strong style={{ color: 'var(--blue)' }}>{fmtCurrency(summary.totalCreditExposure)}</strong>
-            </div>
-          </div>
-
-          {/* Overdue Amount */}
-          <div
-            style={{
-              background: 'var(--surface)',
-              borderRadius: 12,
-              padding: '16px 20px',
-              border: '1px solid var(--border)',
-              display: 'flex',
-              flexDirection: 'column',
-              justifyContent: 'space-between',
-            }}
-          >
-            <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-              Total Overdue Balance
-            </div>
-            <div style={{ fontSize: '1.35rem', fontWeight: 800, color: summary.totalOverdue > 0 ? '#DC2626' : '#16A34A', marginTop: 4 }}>
-              {fmtCurrency(summary.totalOverdue)}
-            </div>
-            <div style={{ fontSize: '0.75rem', color: '#DC2626', marginTop: 4 }}>
-              {summary.retailersOverdue || 0} retailers currently overdue
-            </div>
-          </div>
-
-          {/* High Exposure Accounts */}
-          <div
-            style={{
-              background: 'var(--surface)',
-              borderRadius: 12,
-              padding: '16px 20px',
-              border: '1px solid var(--border)',
-              display: 'flex',
-              flexDirection: 'column',
-              justifyContent: 'space-between',
-            }}
-          >
-            <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-              High Exposure Accounts
-            </div>
-            <div style={{ fontSize: '1.35rem', fontWeight: 800, color: summary.highExposureAccounts > 0 ? '#C2410C' : 'var(--text)', marginTop: 4 }}>
-              {summary.highExposureAccounts || 0} <span style={{ fontSize: '0.8rem', fontWeight: 500, color: 'var(--text-muted)' }}>accounts</span>
-            </div>
-            <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: 4 }}>
-              Accounts with $\ge$85% credit limit utilization
-            </div>
-          </div>
-
-          {/* Average Payment Consistency */}
-          <div
-            style={{
-              background: 'var(--surface)',
-              borderRadius: 12,
-              padding: '16px 20px',
-              border: '1px solid var(--border)',
-              display: 'flex',
-              flexDirection: 'column',
-              justifyContent: 'space-between',
-            }}
-          >
-            <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-              Network Payment Consistency
-            </div>
-            <div style={{ fontSize: '1.35rem', fontWeight: 800, color: summary.averagePaymentConsistency >= 80 ? '#16A34A' : '#D97706', marginTop: 4 }}>
-              {summary.averagePaymentConsistency !== null ? `${summary.averagePaymentConsistency}%` : 'N/A'}
-            </div>
-            <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: 4 }}>
-              Across {summary.retailersWithCredit || 0} active credit accounts
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Filter Toolbar */}
-      <div
-        style={{
-          background: 'var(--surface)',
-          borderRadius: 12,
-          padding: '16px 20px',
-          border: '1px solid var(--border)',
           display: 'flex',
           flexWrap: 'wrap',
           alignItems: 'center',
           justifyContent: 'space-between',
-          gap: 14,
+          gap: 16,
+          background: '#FFFFFF',
+          padding: '18px 22px',
+          borderRadius: 12,
+          border: '1px solid #E5E7EB',
         }}
       >
-        <div style={{ position: 'relative', flex: '1 1 240px', maxWidth: 360 }}>
-          <Search
-            size={15}
+        <div>
+          <h1
             style={{
-              position: 'absolute',
-              left: 12,
-              top: '50%',
-              transform: 'translateY(-50%)',
-              color: 'var(--text-muted)',
-            }}
-          />
-          <input
-            type="text"
-            className="input"
-            placeholder="Search retailer name, contact, city..."
-            value={searchQuery}
-            onChange={(e) => {
-              setSearchQuery(e.target.value)
-              setPage(1)
-            }}
-            style={{
-              width: '100%',
-              paddingLeft: 36,
-              paddingRight: 12,
-              fontSize: '0.85rem',
-              height: 38,
-              borderRadius: 8,
-            }}
-          />
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          {/* Status Filter */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <Filter size={14} style={{ color: 'var(--text-muted)' }} />
-            <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)' }}>Status:</span>
-            <select
-              value={statusFilter}
-              onChange={(e) => {
-                setStatusFilter(e.target.value)
-                setPage(1)
-              }}
-              style={{
-                padding: '7px 12px',
-                borderRadius: 8,
-                border: '1px solid var(--border)',
-                background: 'var(--bg)',
-                color: 'var(--text)',
-                fontSize: '0.82rem',
-                fontWeight: 500,
-                cursor: 'pointer',
-              }}
-            >
-              <option value="ALL">All Accounts</option>
-              <option value="OVERDUE">Overdue Accounts</option>
-              <option value="HIGH_EXPOSURE">High Exposure ($\ge$85%)</option>
-              <option value="WATCH">Watch List ($\ge$60%)</option>
-              <option value="HEALTHY">Healthy</option>
-              <option value="INSUFFICIENT_DATA">Insufficient Data</option>
-            </select>
-          </div>
-
-          {/* Sort Selector */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)' }}>Sort:</span>
-            <select
-              value={sortBy}
-              onChange={(e) => {
-                setSortBy(e.target.value)
-                setPage(1)
-              }}
-              style={{
-                padding: '7px 12px',
-                borderRadius: 8,
-                border: '1px solid var(--border)',
-                background: 'var(--bg)',
-                color: 'var(--text)',
-                fontSize: '0.82rem',
-                fontWeight: 500,
-                cursor: 'pointer',
-              }}
-            >
-              <option value="outstanding">Highest Outstanding</option>
-              <option value="utilization">Utilization %</option>
-              <option value="overdue">Overdue Balance</option>
-              <option value="consistency">Payment Consistency</option>
-              <option value="limit">Credit Limit</option>
-              <option value="name">Retailer Name</option>
-            </select>
-          </div>
-
-          <button
-            onClick={fetchCreditIntelligence}
-            title="Refresh Data"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              padding: '7px 14px',
-              borderRadius: 8,
-              border: '1px solid var(--border)',
-              background: 'var(--surface)',
-              color: 'var(--text)',
-              fontSize: '0.82rem',
-              fontWeight: 600,
-              cursor: 'pointer',
+              fontFamily: 'Manrope, Inter, sans-serif',
+              fontWeight: 700,
+              fontSize: '1.25rem',
+              color: '#111827',
+              margin: 0,
+              letterSpacing: '-0.02em',
             }}
           >
-            <RefreshCw size={14} className={loading ? 'spin' : ''} />
-            Refresh
-          </button>
+            Credit Management
+          </h1>
+          <p style={{ margin: '3px 0 0 0', fontSize: '0.8125rem', color: '#6B7280' }}>
+            Monitor retailer credit exposure, outstanding balances, and payment behavior.
+          </p>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => loadData(true)}
+            disabled={refreshing || loading}
+            icon={<RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />}
+          >
+            Refresh Platform
+          </Button>
         </div>
       </div>
 
-      {/* Error display */}
+      {/* ERROR ALERT */}
       {error && (
         <div
           style={{
             background: '#FEF2F2',
             border: '1px solid #FCA5A5',
-            color: '#DC2626',
             borderRadius: 10,
             padding: '14px 18px',
-            fontSize: '0.85rem',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 10,
-          }}
-        >
-          <AlertCircle size={18} />
-          <span style={{ flex: 1 }}>{error}</span>
-          <button
-            onClick={fetchCreditIntelligence}
-            style={{
-              background: '#DC2626',
-              color: '#fff',
-              border: 'none',
-              borderRadius: 6,
-              padding: '4px 10px',
-              fontSize: '0.78rem',
-              fontWeight: 600,
-              cursor: 'pointer',
-            }}
-          >
-            Retry
-          </button>
-        </div>
-      )}
-
-      {/* Loading state */}
-      {loading && (
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '60px 20px',
-            background: 'var(--surface)',
-            borderRadius: 12,
-            border: '1px solid var(--border)',
-          }}
-        >
-          <div
-            style={{
-              width: 32,
-              height: 32,
-              border: '2.5px solid var(--border)',
-              borderTopColor: 'var(--blue)',
-              borderRadius: '50%',
-              animation: 'spin 0.7s linear infinite',
-              marginBottom: 12,
-            }}
-          />
-          <div style={{ fontSize: '0.88rem', color: 'var(--text-muted)', fontWeight: 500 }}>
-            Analyzing credit exposure & payment consistency...
-          </div>
-        </div>
-      )}
-
-      {/* Empty State */}
-      {!loading && !error && accounts.length === 0 && (
-        <div
-          style={{
-            textAlign: 'center',
-            padding: '60px 20px',
-            background: 'var(--surface)',
-            borderRadius: 12,
-            border: '1px solid var(--border)',
-          }}
-        >
-          <div style={{ fontSize: '2.5rem', marginBottom: 10 }}>💳</div>
-          <h3 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text)', margin: '0 0 6px 0' }}>
-            No Credit Accounts Found
-          </h3>
-          <p style={{ fontSize: '0.84rem', color: 'var(--text-muted)', margin: 0 }}>
-            Try adjusting your search query or status filter.
-          </p>
-        </div>
-      )}
-
-      {/* Accounts Table */}
-      {!loading && !error && accounts.length > 0 && (
-        <div
-          style={{
-            background: 'var(--surface)',
-            borderRadius: 12,
-            border: '1px solid var(--border)',
-            overflow: 'hidden',
-            boxShadow: 'var(--shadow-sm)',
-          }}
-        >
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.84rem' }}>
-              <thead>
-                <tr style={{ background: 'var(--bg)', borderBottom: '1px solid var(--border)' }}>
-                  <th style={{ padding: '12px 16px', fontWeight: 700, color: 'var(--text-muted)', fontSize: '0.7rem', textTransform: 'uppercase' }}>
-                    Retailer
-                  </th>
-                  <th style={{ padding: '12px 16px', fontWeight: 700, color: 'var(--text-muted)', fontSize: '0.7rem', textTransform: 'uppercase' }}>
-                    Credit Limit
-                  </th>
-                  <th style={{ padding: '12px 16px', fontWeight: 700, color: 'var(--text-muted)', fontSize: '0.7rem', textTransform: 'uppercase' }}>
-                    Outstanding & Utilization
-                  </th>
-                  <th style={{ padding: '12px 16px', fontWeight: 700, color: 'var(--text-muted)', fontSize: '0.7rem', textTransform: 'uppercase' }}>
-                    Overdue Balance
-                  </th>
-                  <th style={{ padding: '12px 16px', fontWeight: 700, color: 'var(--text-muted)', fontSize: '0.7rem', textTransform: 'uppercase' }}>
-                    Payment Consistency
-                  </th>
-                  <th style={{ padding: '12px 16px', fontWeight: 700, color: 'var(--text-muted)', fontSize: '0.7rem', textTransform: 'uppercase' }}>
-                    Account Health
-                  </th>
-                  <th style={{ padding: '12px 16px', fontWeight: 700, color: 'var(--text-muted)', fontSize: '0.7rem', textTransform: 'uppercase' }}>
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {accounts.map((acc, idx) => {
-                  const r = acc.retailer
-                  return (
-                    <tr
-                      key={r.id || idx}
-                      style={{
-                        borderBottom: '1px solid var(--border)',
-                        transition: 'background 0.15s',
-                      }}
-                    >
-                      {/* Retailer Info */}
-                      <td style={{ padding: '14px 16px' }}>
-                        <div style={{ fontWeight: 700, color: 'var(--text)', fontSize: '0.88rem' }}>{r.name}</div>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'flex', gap: 8 }}>
-                          {r.contactName && <span>{r.contactName}</span>}
-                          {r.city && <span>• {r.city}</span>}
-                        </div>
-                      </td>
-
-                      {/* Credit Limit */}
-                      <td style={{ padding: '14px 16px' }}>
-                        <div style={{ fontWeight: 700, color: 'var(--text)' }}>{fmtCurrency(acc.creditLimit)}</div>
-                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                          Available: {fmtCurrency(acc.availableCredit)}
-                        </div>
-                      </td>
-
-                      {/* Outstanding & Utilization Progress Bar */}
-                      <td style={{ padding: '14px 16px', minWidth: 160 }}>
-                        <div style={{ fontWeight: 800, color: acc.creditUtilization >= 85 ? '#C2410C' : 'var(--text)' }}>
-                          {fmtCurrency(acc.outstanding)}
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
-                          <div
-                            style={{
-                              flex: 1,
-                              height: 6,
-                              borderRadius: 999,
-                              background: 'var(--bg)',
-                              overflow: 'hidden',
-                              border: '1px solid var(--border)',
-                            }}
-                          >
-                            <div
-                              style={{
-                                width: `${Math.min(100, acc.creditUtilization)}%`,
-                                height: '100%',
-                                background: acc.creditUtilization >= 85 ? '#DC2626' : acc.creditUtilization >= 60 ? '#D97706' : '#16A34A',
-                              }}
-                            />
-                          </div>
-                          <span style={{ fontSize: '0.74rem', fontWeight: 600, color: 'var(--text-muted)', width: 36, textAlign: 'right' }}>
-                            {acc.creditUtilization}%
-                          </span>
-                        </div>
-                      </td>
-
-                      {/* Overdue */}
-                      <td style={{ padding: '14px 16px' }}>
-                        <div style={{ fontWeight: 800, color: acc.overdueAmount > 0 ? '#DC2626' : 'var(--text)' }}>
-                          {acc.overdueAmount > 0 ? fmtCurrency(acc.overdueAmount) : '₹0'}
-                        </div>
-                        {acc.overdueAmount > 0 && (
-                          <div style={{ fontSize: '0.72rem', color: '#DC2626', fontWeight: 500 }}>
-                            {acc.overduePercentage}% of due
-                          </div>
-                        )}
-                      </td>
-
-                      {/* Payment Consistency */}
-                      <td style={{ padding: '14px 16px' }}>
-                        <div style={{ fontWeight: 700, color: 'var(--text)' }}>
-                          {acc.paymentConsistency !== null ? `${acc.paymentConsistency}%` : 'N/A (<2 pmts)'}
-                        </div>
-                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                          {acc.paymentBehavior.repaymentCount} repayments
-                        </div>
-                      </td>
-
-                      {/* Health Status */}
-                      <td style={{ padding: '14px 16px' }}>
-                        <HealthBadge status={acc.creditHealthStatus} />
-                      </td>
-
-                      {/* Actions */}
-                      <td style={{ padding: '14px 16px' }}>
-                        <button
-                          onClick={() => setSelectedAccount(acc)}
-                          style={{
-                            padding: '5px 10px',
-                            borderRadius: 6,
-                            border: '1px solid var(--border)',
-                            background: 'var(--bg)',
-                            color: 'var(--blue)',
-                            fontSize: '0.76rem',
-                            fontWeight: 600,
-                            cursor: 'pointer',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: 4,
-                          }}
-                        >
-                          <Info size={13} /> Details
-                        </button>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* Pagination Bar */}
-      {!loading && !error && pagination.totalPages > 1 && (
-        <div
-          style={{
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            background: 'var(--surface)',
-            padding: '12px 18px',
-            borderRadius: 10,
-            border: '1px solid var(--border)',
+            gap: 12,
+            color: '#991B1B',
+            fontSize: '0.875rem',
           }}
         >
-          <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
-            Showing page <strong>{pagination.page}</strong> of <strong>{pagination.totalPages}</strong> ({pagination.total} total credit accounts)
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <AlertTriangle size={18} style={{ flexShrink: 0, color: '#DC2626' }} />
+            <span>{error}</span>
           </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <button
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={!pagination.hasPreviousPage}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 4,
-                padding: '6px 12px',
-                borderRadius: 6,
-                border: '1px solid var(--border)',
-                background: 'var(--surface)',
-                color: pagination.hasPreviousPage ? 'var(--text)' : 'var(--text-muted)',
-                cursor: pagination.hasPreviousPage ? 'pointer' : 'not-allowed',
-                fontSize: '0.8rem',
-                fontWeight: 600,
-              }}
-            >
-              <ChevronLeft size={15} /> Previous
-            </button>
-
-            <button
-              onClick={() => setPage((p) => Math.min(pagination.totalPages, p + 1))}
-              disabled={!pagination.hasNextPage}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 4,
-                padding: '6px 12px',
-                borderRadius: 6,
-                border: '1px solid var(--border)',
-                background: 'var(--surface)',
-                color: pagination.hasNextPage ? 'var(--text)' : 'var(--text-muted)',
-                cursor: pagination.hasNextPage ? 'pointer' : 'not-allowed',
-                fontSize: '0.8rem',
-                fontWeight: 600,
-              }}
-            >
-              Next <ChevronRight size={15} />
-            </button>
-          </div>
+          <Button variant="outline" size="sm" onClick={() => loadData(true)}>
+            Try Again
+          </Button>
         </div>
       )}
 
-      {/* Retailer Detail Modal */}
-      {selectedAccount && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0,0,0,0.45)',
-            zIndex: 200,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: 20,
-          }}
-        >
-          <div
+      {/* CREDIT OVERVIEW SUMMARY METRICS */}
+      {loading ? (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 14 }}>
+          {[1, 2, 3, 4, 5].map((n) => (
+            <SkeletonCard key={n} />
+          ))}
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 14 }}>
+          {/* Total Outstanding */}
+          <Card style={{ background: '#FFFFFF', border: '1px solid #E5E7EB', borderRadius: 12 }}>
+            <CardContent style={{ padding: '16px 18px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: '0.78125rem', fontWeight: 600, color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  Total Outstanding
+                </span>
+                <div style={{ width: 34, height: 34, borderRadius: 8, background: '#EFF6FF', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <CreditCard size={18} style={{ color: '#2563EB' }} />
+                </div>
+              </div>
+              <div style={{ marginTop: 8 }}>
+                <span style={{ fontSize: '1.5rem', fontWeight: 700, color: '#2563EB', fontFamily: 'Manrope, Inter, sans-serif' }}>
+                  {fmt(summary.totalOutstanding)}
+                </span>
+              </div>
+              <div style={{ fontSize: '0.75rem', color: '#6B7280', marginTop: 4 }}>
+                Active balances across {summary.totalCreditAccounts} accounts
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Total Credit Exposure */}
+          <Card style={{ background: '#FFFFFF', border: '1px solid #E5E7EB', borderRadius: 12 }}>
+            <CardContent style={{ padding: '16px 18px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: '0.78125rem', fontWeight: 600, color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  Total Credit Exposure
+                </span>
+                <div style={{ width: 34, height: 34, borderRadius: 8, background: '#EFF6FF', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <DollarSign size={18} style={{ color: '#2563EB' }} />
+                </div>
+              </div>
+              <div style={{ marginTop: 8 }}>
+                <span style={{ fontSize: '1.5rem', fontWeight: 700, color: '#111827', fontFamily: 'Manrope, Inter, sans-serif' }}>
+                  {fmt(summary.totalCreditExposure)}
+                </span>
+              </div>
+              <div style={{ fontSize: '0.75rem', color: '#6B7280', marginTop: 4 }}>
+                Combined assigned limits
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Available Credit */}
+          <Card style={{ background: '#FFFFFF', border: '1px solid #E5E7EB', borderRadius: 12 }}>
+            <CardContent style={{ padding: '16px 18px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: '0.78125rem', fontWeight: 600, color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  Available Credit
+                </span>
+                <div style={{ width: 34, height: 34, borderRadius: 8, background: '#F0FDF4', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <ShieldCheck size={18} style={{ color: '#16A34A' }} />
+                </div>
+              </div>
+              <div style={{ marginTop: 8 }}>
+                <span style={{ fontSize: '1.5rem', fontWeight: 700, color: '#111827', fontFamily: 'Manrope, Inter, sans-serif' }}>
+                  {fmt(summary.totalAvailableCredit)}
+                </span>
+              </div>
+              <div style={{ fontSize: '0.75rem', color: '#6B7280', marginTop: 4 }}>
+                Unused credit purchasing power
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Portfolio Utilization */}
+          <Card style={{ background: '#FFFFFF', border: '1px solid #E5E7EB', borderRadius: 12 }}>
+            <CardContent style={{ padding: '16px 18px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: '0.78125rem', fontWeight: 600, color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  Credit Utilization
+                </span>
+                <div style={{ width: 34, height: 34, borderRadius: 8, background: '#EFF6FF', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <TrendingUp size={18} style={{ color: '#2563EB' }} />
+                </div>
+              </div>
+              <div style={{ marginTop: 8, display: 'flex', alignItems: 'baseline', gap: 6 }}>
+                <span style={{ fontSize: '1.5rem', fontWeight: 700, color: '#111827', fontFamily: 'Manrope, Inter, sans-serif' }}>
+                  {summary.averageCreditUtilization}%
+                </span>
+                <span style={{ fontSize: '0.75rem', color: '#6B7280' }}>portfolio avg</span>
+              </div>
+              {/* Utilization Progress Bar */}
+              <div style={{ width: '100%', height: 6, background: '#E5E7EB', borderRadius: 999, marginTop: 8, overflow: 'hidden' }}>
+                <div
+                  style={{
+                    height: '100%',
+                    width: `${Math.min(100, summary.averageCreditUtilization)}%`,
+                    background: summary.averageCreditUtilization >= 85 ? '#C2410C' : '#2563EB',
+                    borderRadius: 999,
+                    transition: 'width 0.4s ease',
+                  }}
+                />
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Overdue Exposure (Calm treatment when zero) */}
+          <Card
             style={{
-              background: 'var(--surface)',
-              borderRadius: 14,
-              width: '100%',
-              maxWidth: 520,
-              maxHeight: '90vh',
-              overflowY: 'auto',
-              boxShadow: '0 20px 60px rgba(0,0,0,0.25)',
-              padding: 24,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 16,
+              background: '#FFFFFF',
+              border: `1px solid ${summary.totalOverdue > 0 ? '#FCA5A5' : '#E5E7EB'}`,
+              borderRadius: 12,
             }}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-              <div>
-                <h3 style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--text)', margin: 0 }}>
-                  {selectedAccount.retailer.name}
-                </h3>
-                <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 2 }}>
-                  {selectedAccount.retailer.city} • Contact: {selectedAccount.retailer.contactName}
+            <CardContent style={{ padding: '16px 18px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: '0.78125rem', fontWeight: 600, color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  Overdue Amount
+                </span>
+                <div
+                  style={{
+                    width: 34,
+                    height: 34,
+                    borderRadius: 8,
+                    background: summary.totalOverdue > 0 ? '#FEF2F2' : '#F0FDF4',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <AlertTriangle size={18} style={{ color: summary.totalOverdue > 0 ? '#DC2626' : '#16A34A' }} />
                 </div>
               </div>
-              <button
-                onClick={() => setSelectedAccount(null)}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            <div style={{ display: 'flex', gap: 10 }}>
-              <HealthBadge status={selectedAccount.creditHealthStatus} />
-            </div>
-
-            <div
-              style={{
-                background: 'var(--bg)',
-                borderRadius: 10,
-                padding: '14px 16px',
-                border: '1px solid var(--border)',
-                display: 'grid',
-                gridTemplateColumns: '1fr 1fr',
-                gap: 12,
-              }}
-            >
-              <div>
-                <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-                  Credit Limit
-                </div>
-                <div style={{ fontSize: '0.95rem', fontWeight: 800, color: 'var(--text)', marginTop: 2 }}>
-                  {fmtCurrency(selectedAccount.creditLimit)}
-                </div>
+              <div style={{ marginTop: 8 }}>
+                <span
+                  style={{
+                    fontSize: '1.5rem',
+                    fontWeight: 700,
+                    color: summary.totalOverdue > 0 ? '#DC2626' : '#111827',
+                    fontFamily: 'Manrope, Inter, sans-serif',
+                  }}
+                >
+                  {fmt(summary.totalOverdue)}
+                </span>
               </div>
-
-              <div>
-                <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-                  Outstanding Due
-                </div>
-                <div style={{ fontSize: '0.95rem', fontWeight: 800, color: selectedAccount.outstanding > 0 ? '#C2410C' : 'var(--text)', marginTop: 2 }}>
-                  {fmtCurrency(selectedAccount.outstanding)} ({selectedAccount.creditUtilization}%)
-                </div>
+              <div style={{ fontSize: '0.75rem', color: summary.totalOverdue > 0 ? '#DC2626' : '#6B7280', marginTop: 4 }}>
+                {summary.totalOverdue > 0
+                  ? `${summary.retailersOverdue} account${summary.retailersOverdue > 1 ? 's' : ''} past due`
+                  : 'Portfolio healthy — 0 overdue'}
               </div>
-
-              <div>
-                <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-                  Overdue Balance
-                </div>
-                <div style={{ fontSize: '0.95rem', fontWeight: 800, color: selectedAccount.overdueAmount > 0 ? '#DC2626' : '#16A34A', marginTop: 2 }}>
-                  {fmtCurrency(selectedAccount.overdueAmount)}
-                </div>
-              </div>
-
-              <div>
-                <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-                  Payment Consistency
-                </div>
-                <div style={{ fontSize: '0.95rem', fontWeight: 800, color: 'var(--blue)', marginTop: 2 }}>
-                  {selectedAccount.paymentConsistency !== null ? `${selectedAccount.paymentConsistency}%` : 'INSUFFICIENT_DATA'}
-                </div>
-              </div>
-            </div>
-
-            {/* Explanation Note */}
-            <div
-              style={{
-                fontSize: '0.83rem',
-                color: 'var(--text)',
-                background: '#F8FAFC',
-                padding: '12px 16px',
-                borderRadius: 8,
-                borderLeft: '3px solid var(--blue)',
-                lineHeight: 1.4,
-              }}
-            >
-              <div style={{ fontWeight: 700, marginBottom: 4, color: 'var(--blue)' }}>Deterministic Credit Assessment</div>
-              {selectedAccount.explanation}
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-              <button
-                onClick={() => setSelectedAccount(null)}
-                style={{
-                  padding: '8px 16px',
-                  borderRadius: 8,
-                  border: '1px solid var(--border)',
-                  background: 'var(--surface)',
-                  color: 'var(--text)',
-                  fontSize: '0.84rem',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                }}
-              >
-                Close
-              </button>
-            </div>
-          </div>
+            </CardContent>
+          </Card>
         </div>
       )}
+
+      {/* SEARCH + FILTERS */}
+      <div
+        style={{
+          background: '#FFFFFF',
+          border: '1px solid #E5E7EB',
+          borderRadius: 12,
+          padding: '14px 18px',
+          display: 'flex',
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 12,
+        }}
+      >
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10, flex: 1, minWidth: 280 }}>
+          {/* Search */}
+          <div style={{ position: 'relative', width: 260, maxWidth: '100%' }}>
+            <Search size={15} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#9CA3AF' }} />
+            <input
+              type="text"
+              placeholder="Search retailer name or city..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              style={{
+                width: '100%',
+                paddingLeft: 34,
+                paddingRight: search ? 30 : 12,
+                height: 38,
+                borderRadius: 8,
+                border: '1px solid #D1D5DB',
+                fontSize: '0.8125rem',
+                outline: 'none',
+                background: '#FFFFFF',
+              }}
+            />
+            {search && (
+              <button
+                onClick={() => setSearch('')}
+                style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#9CA3AF', cursor: 'pointer', padding: 2 }}
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
+
+          {/* Classification Filter */}
+          <select
+            value={statusFilter}
+            onChange={(e) => {
+              setStatusFilter(e.target.value)
+              setPage(1)
+            }}
+            style={{
+              height: 38,
+              borderRadius: 8,
+              border: '1px solid #D1D5DB',
+              padding: '0 12px',
+              fontSize: '0.8125rem',
+              color: '#374151',
+              background: '#FFFFFF',
+              cursor: 'pointer',
+              outline: 'none',
+            }}
+          >
+            <option value="ALL">All Classifications</option>
+            <option value="HEALTHY">Healthy</option>
+            <option value="WATCH">Watch List</option>
+            <option value="HIGH_EXPOSURE">High Exposure</option>
+            <option value="OVERDUE">Overdue Accounts</option>
+            <option value="INSUFFICIENT_DATA">Insufficient Data</option>
+          </select>
+
+          {/* Sort */}
+          <select
+            value={sortBy}
+            onChange={(e) => {
+              setSortBy(e.target.value)
+              setPage(1)
+            }}
+            style={{
+              height: 38,
+              borderRadius: 8,
+              border: '1px solid #D1D5DB',
+              padding: '0 12px',
+              fontSize: '0.8125rem',
+              color: '#374151',
+              background: '#FFFFFF',
+              cursor: 'pointer',
+              outline: 'none',
+            }}
+          >
+            <option value="outstanding">Sort: Outstanding (High to Low)</option>
+            <option value="utilization">Sort: Utilization (High to Low)</option>
+            <option value="overdue">Sort: Overdue (High to Low)</option>
+            <option value="limit">Sort: Credit Limit (High to Low)</option>
+            <option value="consistency">Sort: Payment Consistency</option>
+            <option value="name">Sort: Retailer Name (A - Z)</option>
+          </select>
+
+          {(search || statusFilter !== 'ALL' || sortBy !== 'outstanding') && (
+            <Button variant="ghost" size="sm" onClick={handleResetFilters} icon={<X size={14} />}>
+              Reset Filters
+            </Button>
+          )}
+        </div>
+
+        <div style={{ fontSize: '0.8125rem', color: '#6B7280', fontWeight: 500 }}>
+          Showing <strong>{accounts.length}</strong> of {pagination.total} accounts
+        </div>
+      </div>
+
+      {/* CREDIT ACCOUNTS TABLE */}
+      {loading ? (
+        <SkeletonTable rows={5} cols={7} />
+      ) : accounts.length === 0 ? (
+        <Card style={{ background: '#FFFFFF', border: '1px solid #E5E7EB', borderRadius: 12 }}>
+          <CardContent style={{ padding: '48px 24px' }}>
+            <EmptyState
+              icon={CreditCard}
+              title={search || statusFilter !== 'ALL' ? 'No credit accounts match your filter' : 'No credit accounts found'}
+              description={
+                search || statusFilter !== 'ALL'
+                  ? 'Try adjusting your search query or credit classification filters.'
+                  : 'Link retailers or assign credit limits to manage credit exposure.'
+              }
+              action={
+                search || statusFilter !== 'ALL' ? (
+                  <Button variant="outline" size="sm" onClick={handleResetFilters}>
+                    Clear Filters
+                  </Button>
+                ) : null
+              }
+            />
+          </CardContent>
+        </Card>
+      ) : (
+        <Card style={{ background: '#FFFFFF', border: '1px solid #E5E7EB', borderRadius: 12, overflow: 'hidden' }}>
+          {/* Desktop Table View */}
+          <div className="hidden md:block" style={{ overflowX: 'auto' }}>
+            <Table>
+              <TableHeader>
+                <TableRow style={{ background: '#F8FAFC', borderBottom: '1px solid #E5E7EB' }}>
+                  <TableHead style={{ padding: '12px 18px', fontWeight: 600, color: '#374151', fontSize: '0.78125rem', textTransform: 'uppercase' }}>
+                    Retailer
+                  </TableHead>
+                  <TableHead style={{ padding: '12px 18px', fontWeight: 600, color: '#374151', fontSize: '0.78125rem', textTransform: 'uppercase' }}>
+                    Credit Limit
+                  </TableHead>
+                  <TableHead style={{ padding: '12px 18px', fontWeight: 600, color: '#374151', fontSize: '0.78125rem', textTransform: 'uppercase' }}>
+                    Outstanding
+                  </TableHead>
+                  <TableHead style={{ padding: '12px 18px', fontWeight: 600, color: '#374151', fontSize: '0.78125rem', textTransform: 'uppercase' }}>
+                    Available
+                  </TableHead>
+                  <TableHead style={{ padding: '12px 18px', fontWeight: 600, color: '#374151', fontSize: '0.78125rem', textTransform: 'uppercase' }}>
+                    Utilization
+                  </TableHead>
+                  <TableHead style={{ padding: '12px 18px', fontWeight: 600, color: '#374151', fontSize: '0.78125rem', textTransform: 'uppercase' }}>
+                    Classification
+                  </TableHead>
+                  <TableHead style={{ padding: '12px 18px', fontWeight: 600, color: '#374151', fontSize: '0.78125rem', textTransform: 'uppercase' }}>
+                    Last Payment
+                  </TableHead>
+                  <TableHead style={{ padding: '12px 18px', fontWeight: 600, color: '#374151', fontSize: '0.78125rem', textTransform: 'uppercase', textAlign: 'right' }}>
+                    Actions
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {accounts.map((acc) => {
+                  const r = acc.retailer || {}
+                  const util = acc.creditUtilization || 0
+                  return (
+                    <TableRow key={r.id || Math.random()} style={{ borderBottom: '1px solid #F3F4F6' }}>
+                      {/* Retailer */}
+                      <TableCell style={{ padding: '14px 18px' }}>
+                        <div>
+                          <button
+                            onClick={() => handleRetailerClick(r.id)}
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              padding: 0,
+                              fontWeight: 600,
+                              color: '#111827',
+                              fontSize: '0.875rem',
+                              cursor: 'pointer',
+                              textAlign: 'left',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 4,
+                            }}
+                          >
+                            {r.name}
+                            <ExternalLink size={12} style={{ color: '#9CA3AF' }} />
+                          </button>
+                          <div style={{ fontSize: '0.75rem', color: '#6B7280', marginTop: 2 }}>
+                            {r.city ? `${r.city} • ` : ''}{r.phone || r.email || ''}
+                          </div>
+                        </div>
+                      </TableCell>
+
+                      {/* Credit Limit */}
+                      <TableCell style={{ padding: '14px 18px', fontWeight: 600, color: '#111827', fontSize: '0.875rem' }}>
+                        {fmt(acc.creditLimit)}
+                      </TableCell>
+
+                      {/* Outstanding */}
+                      <TableCell style={{ padding: '14px 18px' }}>
+                        <div style={{ fontWeight: 700, color: acc.overdueAmount > 0 ? '#DC2626' : '#2563EB', fontSize: '0.875rem' }}>
+                          {fmt(acc.outstanding)}
+                        </div>
+                        {acc.overdueAmount > 0 && (
+                          <div style={{ fontSize: '0.72rem', color: '#DC2626', fontWeight: 600 }}>
+                            Overdue: {fmt(acc.overdueAmount)}
+                          </div>
+                        )}
+                      </TableCell>
+
+                      {/* Available Credit */}
+                      <TableCell style={{ padding: '14px 18px', fontSize: '0.875rem', color: '#374151', fontWeight: 500 }}>
+                        {fmt(acc.availableCredit)}
+                      </TableCell>
+
+                      {/* Utilization */}
+                      <TableCell style={{ padding: '14px 18px' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, width: 110 }}>
+                          <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: util >= 85 ? '#C2410C' : '#374151' }}>
+                            {util}%
+                          </span>
+                          <div style={{ width: '100%', height: 5, background: '#E5E7EB', borderRadius: 999, overflow: 'hidden' }}>
+                            <div
+                              style={{
+                                height: '100%',
+                                width: `${Math.min(100, util)}%`,
+                                background: util >= 85 ? '#C2410C' : util >= 60 ? '#D97706' : '#2563EB',
+                                borderRadius: 999,
+                              }}
+                            />
+                          </div>
+                        </div>
+                      </TableCell>
+
+                      {/* Classification */}
+                      <TableCell style={{ padding: '14px 18px' }}>
+                        <HealthBadge status={acc.creditHealthStatus} />
+                      </TableCell>
+
+                      {/* Last Payment */}
+                      <TableCell style={{ padding: '14px 18px', fontSize: '0.78125rem', color: '#6B7280' }}>
+                        {formatDate(acc.paymentBehavior?.lastPaymentDate)}
+                      </TableCell>
+
+                      {/* Actions */}
+                      <TableCell style={{ padding: '14px 18px', textAlign: 'right' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => openRepayModal(acc)}
+                            icon={<Receipt size={13} />}
+                            title="Record Repayment"
+                          >
+                            Repay
+                          </Button>
+
+                          <button
+                            onClick={() => openLimitModal(acc)}
+                            title="Adjust Credit Limit"
+                            style={{
+                              padding: 6,
+                              borderRadius: 6,
+                              border: '1px solid #E5E7EB',
+                              background: '#FFFFFF',
+                              color: '#374151',
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                            }}
+                          >
+                            <Edit2 size={13} />
+                          </button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
+              </TableBody>
+            </Table>
+          </div>
+
+          {/* Mobile Card Layout */}
+          <div className="block md:hidden" style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {accounts.map((acc) => {
+              const r = acc.retailer || {}
+              const util = acc.creditUtilization || 0
+              return (
+                <div
+                  key={r.id || Math.random()}
+                  style={{
+                    background: '#FFFFFF',
+                    border: '1px solid #E5E7EB',
+                    borderRadius: 10,
+                    padding: 14,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 10,
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+                    <div>
+                      <button
+                        onClick={() => handleRetailerClick(r.id)}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          padding: 0,
+                          fontWeight: 700,
+                          fontSize: '0.9375rem',
+                          color: '#111827',
+                          cursor: 'pointer',
+                          textAlign: 'left',
+                        }}
+                      >
+                        {r.name}
+                      </button>
+                      <div style={{ fontSize: '0.75rem', color: '#6B7280', marginTop: 2 }}>{r.city}</div>
+                    </div>
+                    <HealthBadge status={acc.creditHealthStatus} />
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, background: '#F8FAFC', padding: 10, borderRadius: 8 }}>
+                    <div>
+                      <div style={{ fontSize: '0.6875rem', color: '#6B7280', textTransform: 'uppercase' }}>Outstanding</div>
+                      <div style={{ fontWeight: 700, color: acc.overdueAmount > 0 ? '#DC2626' : '#2563EB', fontSize: '0.9375rem' }}>
+                        {fmt(acc.outstanding)}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '0.6875rem', color: '#6B7280', textTransform: 'uppercase' }}>Credit Limit</div>
+                      <div style={{ fontWeight: 600, color: '#111827', fontSize: '0.9375rem' }}>{fmt(acc.creditLimit)}</div>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.78125rem' }}>
+                    <span style={{ color: '#6B7280' }}>Utilization: <strong>{util}%</strong></span>
+                    <span style={{ color: '#6B7280' }}>Available: <strong>{fmt(acc.availableCredit)}</strong></span>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, paddingTop: 4 }}>
+                    <Button variant="outline" size="sm" onClick={() => openRepayModal(acc)} icon={<Receipt size={13} />}>
+                      Record Repayment
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => openLimitModal(acc)} icon={<Edit2 size={13} />}>
+                      Limit
+                    </Button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Table Pagination */}
+          {pagination.totalPages > 1 && (
+            <div style={{ padding: '12px 18px', borderTop: '1px solid #E5E7EB', background: '#F8FAFC' }}>
+              <TablePagination
+                page={pagination.page}
+                totalPages={pagination.totalPages}
+                onPageChange={(p) => setPage(p)}
+              />
+            </div>
+          )}
+        </Card>
+      )}
+
+      {/* MODAL: RECORD REPAYMENT */}
+      <Modal open={repayModalOpen} onClose={() => setRepayModalOpen(false)}>
+        <ModalHeader>
+          <ModalTitle>Record Credit Repayment</ModalTitle>
+        </ModalHeader>
+        <form onSubmit={handleRepaySubmit}>
+          <ModalBody style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {repayError && (
+              <div style={{ background: '#FEF2F2', border: '1px solid #FCA5A5', padding: '10px 14px', borderRadius: 8, color: '#991B1B', fontSize: '0.8125rem' }}>
+                {repayError}
+              </div>
+            )}
+
+            {selectedRepayAccount && (
+              <div style={{ background: '#F8FAFC', border: '1px solid #E5E7EB', padding: 12, borderRadius: 8 }}>
+                <div style={{ fontWeight: 600, color: '#111827', fontSize: '0.875rem' }}>
+                  {selectedRepayAccount.retailer?.name}
+                </div>
+                <div style={{ fontSize: '0.78125rem', color: '#6B7280', marginTop: 2 }}>
+                  Current Outstanding Balance:{' '}
+                  <strong style={{ color: '#2563EB' }}>{fmt(selectedRepayAccount.outstanding)}</strong>
+                </div>
+              </div>
+            )}
+
+            <div>
+              <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#374151', marginBottom: 5 }}>
+                Repayment Amount (₹) <span style={{ color: '#DC2626' }}>*</span>
+              </label>
+              <Input
+                type="number"
+                placeholder="e.g. 5000"
+                value={repayAmount}
+                onChange={(e) => setRepayAmount(e.target.value)}
+                required
+              />
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#374151', marginBottom: 5 }}>
+                Payment Note / Reference
+              </label>
+              <Input
+                placeholder="e.g. UPI transfer, Check #1042"
+                value={repayNote}
+                onChange={(e) => setRepayNote(e.target.value)}
+              />
+            </div>
+          </ModalBody>
+          <ModalFooter>
+            <Button variant="outline" size="sm" type="button" onClick={() => setRepayModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" size="sm" type="submit" disabled={submittingRepay}>
+              {submittingRepay ? 'Recording...' : 'Confirm Repayment'}
+            </Button>
+          </ModalFooter>
+        </form>
+      </Modal>
+
+      {/* MODAL: ADJUST CREDIT LIMIT */}
+      <Modal open={limitModalOpen} onClose={() => setLimitModalOpen(false)}>
+        <ModalHeader>
+          <ModalTitle>Adjust Credit Limit</ModalTitle>
+        </ModalHeader>
+        <form onSubmit={handleLimitSubmit}>
+          <ModalBody style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {limitError && (
+              <div style={{ background: '#FEF2F2', border: '1px solid #FCA5A5', padding: '10px 14px', borderRadius: 8, color: '#991B1B', fontSize: '0.8125rem' }}>
+                {limitError}
+              </div>
+            )}
+
+            {selectedLimitAccount && (
+              <div style={{ background: '#F8FAFC', border: '1px solid #E5E7EB', padding: 12, borderRadius: 8 }}>
+                <div style={{ fontWeight: 600, color: '#111827', fontSize: '0.875rem' }}>
+                  {selectedLimitAccount.retailer?.name}
+                </div>
+                <div style={{ fontSize: '0.78125rem', color: '#6B7280', marginTop: 2 }}>
+                  Current Credit Limit: <strong>{fmt(selectedLimitAccount.creditLimit)}</strong>
+                </div>
+              </div>
+            )}
+
+            <div>
+              <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#374151', marginBottom: 5 }}>
+                New Credit Limit (₹) <span style={{ color: '#DC2626' }}>*</span>
+              </label>
+              <Input
+                type="number"
+                placeholder="e.g. 50000"
+                value={newCreditLimit}
+                onChange={(e) => setNewCreditLimit(e.target.value)}
+                required
+              />
+            </div>
+          </ModalBody>
+          <ModalFooter>
+            <Button variant="outline" size="sm" type="button" onClick={() => setLimitModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" size="sm" type="submit" disabled={submittingLimit}>
+              {submittingLimit ? 'Updating...' : 'Update Credit Limit'}
+            </Button>
+          </ModalFooter>
+        </form>
+      </Modal>
     </div>
   )
 }
