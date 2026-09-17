@@ -250,7 +250,7 @@ function InfoRow({ icon: Icon, label, value, mono }) {
 
 function StatusBadge({ status }) {
   const map = {
-    active:    { bg: '#F0FDF4', color: '#15803D', dot: '#22C55E', label: 'Active' },
+    active:    { bg: '#EFF6FF', color: '#2563EB', dot: '#2563EB', label: 'Active' },
     pending:   { bg: '#FFFBEB', color: '#B45309', dot: '#F59E0B', label: 'Pending' },
     suspended: { bg: '#FEF2F2', color: '#DC2626', dot: '#EF4444', label: 'Suspended' },
   }
@@ -271,9 +271,10 @@ function StatusBadge({ status }) {
 function RoleBadge({ role }) {
   const map = {
     wholesaler: { bg: '#EFF4FF', color: '#2563EB', label: 'Wholesaler' },
-    retailer:   { bg: '#F5F3FF', color: '#7C3AED', label: 'Retailer' },
+    retailer:   { bg: '#EFF4FF', color: '#2563EB', label: 'Retailer' },
     salesman:   { bg: '#F0FDF4', color: '#16A34A', label: 'Salesman' },
     admin:      { bg: '#FEF2F2', color: '#DC2626', label: 'Admin' },
+
   }
   const r = map[role] || { bg: '#F5F6FA', color: '#6B7280', label: role }
   return (
@@ -695,7 +696,7 @@ function ChangePasswordSection({ onToast }) {
       icon={Lock}
       title="Change Password"
       subtitle="Verify your current password before setting a new one"
-      accent="var(--purple, #7C3AED)"
+      accent="var(--blue, #2563EB)"
     >
       <div style={{ maxWidth: 440 }}>
         <Field label="Current Password" error={errors.currentPassword}>
@@ -732,8 +733,9 @@ function ChangePasswordSection({ onToast }) {
         <button
           onClick={handleSubmit}
           disabled={saving}
-          style={{ ...css.btn, background: 'var(--purple, #7C3AED)', color: '#fff', opacity: saving ? 0.7 : 1, marginTop: 4 }}
+          style={{ ...css.btn, background: 'var(--blue, #2563EB)', color: '#fff', opacity: saving ? 0.7 : 1, marginTop: 4 }}
         >
+
           {saving ? <Spinner size={14} /> : <Lock size={14} />}
           {saving ? 'Updating…' : 'Update Password'}
         </button>
@@ -782,10 +784,10 @@ function ProfileOverview({ user }) {
   return (
     <div style={{
       ...css.card,
-      background: 'linear-gradient(135deg, var(--blue, #2563EB) 0%, #1D4ED8 100%)',
-      border: 'none',
-      color: '#fff',
-      padding: '28px 28px',
+      background: '#FFFFFF',
+      border: '1px solid #E5E7EB',
+      color: '#111827',
+      padding: '24px 28px',
       display: 'flex',
       alignItems: 'center',
       gap: 24,
@@ -793,34 +795,35 @@ function ProfileOverview({ user }) {
     }}>
       {/* Avatar */}
       <div style={{
-        width: 80, height: 80, borderRadius: '50%',
-        background: 'rgba(255,255,255,0.2)',
-        border: '3px solid rgba(255,255,255,0.5)',
+        width: 72, height: 72, borderRadius: '50%',
+        background: '#EFF6FF',
+        border: '2px solid #BFDBFE',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         overflow: 'hidden', flexShrink: 0,
+        color: '#2563EB',
       }}>
         {user?.profileImage?.url
           ? <img src={user.profileImage.url} alt="avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-          : <span style={{ fontSize: '1.8rem', fontWeight: 800 }}>{initials}</span>
+          : <span style={{ fontSize: '1.6rem', fontWeight: 800 }}>{initials}</span>
         }
       </div>
 
       {/* Info */}
       <div style={{ flex: 1, minWidth: 200 }}>
-        <div style={{ fontFamily: 'Plus Jakarta Sans, sans-serif', fontSize: '1.35rem', fontWeight: 800, marginBottom: 4 }}>
+        <div style={{ fontFamily: 'Plus Jakarta Sans, sans-serif', fontSize: '1.25rem', fontWeight: 800, marginBottom: 4, color: '#111827' }}>
           {user?.name || 'Unknown User'}
         </div>
-        <div style={{ fontSize: '0.85rem', opacity: 0.85, marginBottom: 8 }}>{user?.email}</div>
+        <div style={{ fontSize: '0.85rem', color: '#6B7280', marginBottom: 8 }}>{user?.email}</div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           <RoleBadge role={user?.role} />
           <StatusBadge status={user?.status} />
           {user?.businessName && (
-            <span style={{ fontSize: '0.75rem', background: 'rgba(255,255,255,0.15)', padding: '2px 8px', borderRadius: 999 }}>
+            <span style={{ fontSize: '0.75rem', background: '#F3F4F6', color: '#374151', padding: '2px 8px', borderRadius: 999, border: '1px solid #E5E7EB' }}>
               {user.businessName}
             </span>
           )}
           {user?.city && (
-            <span style={{ fontSize: '0.75rem', background: 'rgba(255,255,255,0.15)', padding: '2px 8px', borderRadius: 999 }}>
+            <span style={{ fontSize: '0.75rem', background: '#F3F4F6', color: '#374151', padding: '2px 8px', borderRadius: 999, border: '1px solid #E5E7EB' }}>
               📍 {user.city}
             </span>
           )}
@@ -828,11 +831,11 @@ function ProfileOverview({ user }) {
       </div>
 
       {/* Meta */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flexShrink: 0 }}>
-        <div style={{ fontSize: '0.75rem', opacity: 0.7 }}>Member since</div>
-        <div style={{ fontSize: '0.85rem', fontWeight: 600 }}>{joinedDate}</div>
-        <div style={{ fontSize: '0.75rem', opacity: 0.7, marginTop: 4 }}>Last login</div>
-        <div style={{ fontSize: '0.85rem', fontWeight: 600 }}>{lastLogin}</div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flexShrink: 0 }}>
+        <div style={{ fontSize: '0.75rem', color: '#6B7280' }}>Member since</div>
+        <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#111827' }}>{joinedDate}</div>
+        <div style={{ fontSize: '0.75rem', color: '#6B7280', marginTop: 4 }}>Last login</div>
+        <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#111827' }}>{lastLogin}</div>
       </div>
     </div>
   )

@@ -1,201 +1,219 @@
+import React from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import {
-  LayoutDashboard, ShoppingCart, Package,
-  Store, CreditCard, Users, BarChart2,
-  Settings, LogOut,
+  LayoutDashboard,
+  ShoppingCart,
+  Package,
+  Store,
+  CreditCard,
+  Users,
+  BarChart2,
+  Settings,
+  LogOut,
+  ChevronLeft,
+  ChevronRight,
+  BrainCircuit,
+  Sparkles
 } from 'lucide-react'
-import BrandLogo from '../ui/Brandlogo'
+import BrandLogo from '../ui/BrandLogo'
 
 const navConfig = [
-  { key: 'dashboard', label: 'Dashboard', path: '/dashboard/wholesaler',           icon: LayoutDashboard },
-  { key: 'orders',    label: 'Orders',    path: '/dashboard/wholesaler/orders',    icon: ShoppingCart, badge: 12 },
+  { key: 'dashboard', label: 'Dashboard', path: '/dashboard/wholesaler', icon: LayoutDashboard },
+  { key: 'orders', label: 'Orders', path: '/dashboard/wholesaler/orders', icon: ShoppingCart, badge: 12 },
   { key: 'inventory', label: 'Inventory', path: '/dashboard/wholesaler/inventory', icon: Package },
   { key: 'retailers', label: 'Retailers', path: '/dashboard/wholesaler/retailers', icon: Store },
-  { key: 'credit',    label: 'Credit',    path: '/dashboard/wholesaler/credit',    icon: CreditCard },
-  { key: 'salesmen',  label: 'Salesmen',  path: '/dashboard/wholesaler/salesmen',  icon: Users },
+  { key: 'credit', label: 'Credit Risk', path: '/dashboard/wholesaler/credit', icon: CreditCard },
+  { key: 'salesmen', label: 'Salesmen', path: '/dashboard/wholesaler/salesmen', icon: Users },
   { key: 'analytics', label: 'Analytics', path: '/dashboard/wholesaler/analytics', icon: BarChart2 },
+]
+
+const intelConfig = [
+  { key: 'smart-reorder', label: 'Smart Reorder', path: '/dashboard/wholesaler/smart-reorder', icon: Sparkles },
+  { key: 'inventory-intel', label: 'Inventory Intel', path: '/dashboard/wholesaler/inventory-intel', icon: BrainCircuit },
 ]
 
 const bottomConfig = [
   { key: 'settings', label: 'Settings', path: '/dashboard/wholesaler/settings', icon: Settings },
-  { key: 'logout',   label: 'Logout',   path: '/login',                         icon: LogOut },
+  { key: 'logout', label: 'Logout', path: '/login', icon: LogOut },
 ]
 
-const iconProps = { size: 16, strokeWidth: 1.75 }
-
-export default function Sidebar({ collapsed, setCollapsed }) {
+export default function Sidebar({ collapsed, setCollapsed, mobileOpen, setMobileOpen }) {
   const location = useLocation()
+
   const isActive = (path) => location.pathname === path
 
   return (
-    <aside style={{
-      position: 'fixed', top: 0, left: 0, bottom: 0,
-      width: collapsed ? 60 : 232,
-      background: 'var(--surface)',
-      borderRight: '1px solid var(--border)',
-      display: 'flex', flexDirection: 'column',
-      zIndex: 50, transition: 'width 0.25s ease',
-      overflow: 'visible',
-      boxShadow: 'var(--shadow-sm)',
-    }}>
+    <>
+      {/* Mobile Overlay */}
+      {mobileOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-slate-900/50 backdrop-blur-xs md:hidden"
+          onClick={() => setMobileOpen(false)}
+        />
+      )}
 
-      {/* Brand */}
-      <div style={{
-        display: 'flex', alignItems: 'center',
-        padding: collapsed ? '14px 0' : '14px 16px',
-        justifyContent: collapsed ? 'center' : 'flex-start',
-        borderBottom: '1px solid var(--border)',
-        minHeight: 60, flexShrink: 0, gap: 0,
-      }}>
-        <BrandLogo size="md" variant="dark" collapsed={collapsed} />
-      </div>
-
-      {/* Toggle */}
-      <button
-        onClick={() => setCollapsed(c => !c)}
-        style={{
-          position: 'absolute', top: 17, right: -13,
-          width: 26, height: 26,
-          background: 'var(--surface)',
-          border: '1px solid var(--border)',
-          borderRadius: '50%',
-          color: 'var(--text-muted)',
-          fontSize: '0.7rem', cursor: 'pointer',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          transition: 'all 0.2s', zIndex: 60,
-          boxShadow: 'var(--shadow-sm)',
-        }}
-        onMouseEnter={e => {
-          e.currentTarget.style.background = 'var(--blue)'
-          e.currentTarget.style.color = '#fff'
-          e.currentTarget.style.borderColor = 'var(--blue)'
-        }}
-        onMouseLeave={e => {
-          e.currentTarget.style.background = 'var(--surface)'
-          e.currentTarget.style.color = 'var(--text-muted)'
-          e.currentTarget.style.borderColor = 'var(--border)'
-        }}
+      {/* Sidebar Container */}
+      <aside
+        className={`fixed top-0 bottom-0 left-0 z-50 bg-white border-r border-slate-200 flex flex-col transition-all duration-200 shadow-xs ${
+          collapsed ? 'w-[60px]' : 'w-[232px]'
+        } ${mobileOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}
       >
-        {collapsed ? '›' : '‹'}
-      </button>
+        {/* Brand Header */}
+        <div
+          className={`h-15 border-b border-slate-100 flex items-center shrink-0 ${
+            collapsed ? 'justify-center px-0' : 'justify-between px-4'
+          }`}
+        >
+          <BrandLogo size="md" variant="dark" collapsed={collapsed} />
 
-      {/* Nav */}
-      <nav style={{ flex: 1, padding: '10px 0 8px', overflowY: 'auto', overflowX: 'hidden' }}>
-        {!collapsed && (
-          <div style={{ fontSize: '0.62rem', fontWeight: 700, letterSpacing: '0.1em', color: 'var(--text-faint)', padding: '0 14px 6px' }}>
-            MAIN MENU
-          </div>
-        )}
-
-        {navConfig.map(item => {
-          const Icon   = item.icon
-          const active = isActive(item.path)
-          return (
-            <Link
-              key={item.path}
-              to={item.path}
-              title={collapsed ? item.label : ''}
-              style={{
-                display: 'flex', alignItems: 'center',
-                gap: 10,
-                padding: collapsed ? '10px 0' : '9px 14px',
-                justifyContent: collapsed ? 'center' : 'flex-start',
-                color: active ? 'var(--blue)' : 'var(--text-muted)',
-                background: active ? 'var(--blue-light)' : 'transparent',
-                borderLeft: active ? '2px solid var(--blue)' : '2px solid transparent',
-                textDecoration: 'none',
-                fontSize: '0.85rem',
-                fontWeight: active ? 600 : 500,
-                transition: 'all 0.15s',
-                whiteSpace: 'nowrap',
-              }}
-              onMouseEnter={e => {
-                if (!active) {
-                  e.currentTarget.style.background = 'var(--bg)'
-                  e.currentTarget.style.color = 'var(--text)'
-                }
-              }}
-              onMouseLeave={e => {
-                if (!active) {
-                  e.currentTarget.style.background = 'transparent'
-                  e.currentTarget.style.color = 'var(--text-muted)'
-                }
-              }}
-            >
-              <Icon {...iconProps} />
-              {!collapsed && <span style={{ flex: 1 }}>{item.label}</span>}
-              {!collapsed && item.badge && (
-                <span style={{
-                  background: 'var(--blue)', color: '#fff',
-                  fontSize: '0.62rem', fontWeight: 700,
-                  padding: '1px 6px', borderRadius: 999,
-                }}>
-                  {item.badge}
-                </span>
-              )}
-            </Link>
-          )
-        })}
-      </nav>
-
-      {/* Bottom */}
-      <div style={{ paddingBottom: 12, borderTop: '1px solid var(--border)' }}>
-        {!collapsed && (
-          <div style={{ fontSize: '0.62rem', fontWeight: 700, letterSpacing: '0.1em', color: 'var(--text-faint)', padding: '10px 14px 6px' }}>
-            ACCOUNT
-          </div>
-        )}
-
-        {bottomConfig.map(item => {
-          const Icon = item.icon
-          return (
-            <Link
-              key={item.path}
-              to={item.path}
-              title={collapsed ? item.label : ''}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 10,
-                padding: collapsed ? '10px 0' : '9px 14px',
-                justifyContent: collapsed ? 'center' : 'flex-start',
-                color: 'var(--text-muted)', textDecoration: 'none',
-                fontSize: '0.85rem', fontWeight: 500, transition: 'all 0.15s',
-                borderLeft: '2px solid transparent',
-              }}
-              onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg)'; e.currentTarget.style.color = 'var(--text)' }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-muted)' }}
-            >
-              <Icon {...iconProps} />
-              {!collapsed && <span>{item.label}</span>}
-            </Link>
-          )
-        })}
-
-        {/* Profile */}
-        <div style={{
-          display: 'flex', alignItems: 'center',
-          gap: collapsed ? 0 : 10,
-          padding: collapsed ? '10px 0' : '10px 14px 0',
-          justifyContent: collapsed ? 'center' : 'flex-start',
-          marginTop: 6, borderTop: '1px solid var(--border)',
-        }}>
-          <div style={{
-            width: 30, height: 30, borderRadius: '50%',
-            background: 'var(--blue-light)',
-            border: '1.5px solid var(--blue-muted)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: '0.65rem', fontWeight: 700,
-            color: 'var(--blue)', flexShrink: 0,
-          }}>
-            RM
-          </div>
-          {!collapsed && (
-            <div>
-              <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap' }}>Rajesh Mehta</div>
-              <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>Wholesaler</div>
-            </div>
-          )}
+          {/* Desktop Toggle Button */}
+          <button
+            onClick={() => setCollapsed(!collapsed)}
+            className="hidden md:flex items-center justify-center w-6 h-6 rounded-full border border-slate-200 bg-white text-slate-500 hover:text-blue-600 hover:border-blue-600 transition-colors shadow-xs"
+            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            {collapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronLeft className="w-3.5 h-3.5" />}
+          </button>
         </div>
-      </div>
-    </aside>
+
+        {/* Navigation Content */}
+        <nav className="flex-1 py-3 px-2 overflow-y-auto space-y-5 custom-scrollbar">
+          {/* Main Menu Section */}
+          <div>
+            {!collapsed && (
+              <div className="px-3 mb-1.5 text-[10px] font-semibold tracking-wider text-slate-400 uppercase select-none">
+                MAIN NAVIGATION
+              </div>
+            )}
+            <div className="space-y-0.5">
+              {navConfig.map((item) => {
+                const Icon = item.icon
+                const active = isActive(item.path)
+
+                return (
+                  <Link
+                    key={item.path}
+                    to={item.path}
+                    title={collapsed ? item.label : ''}
+                    className={`flex items-center gap-3 px-3 py-2 rounded-lg text-xs transition-colors group relative ${
+                      active
+                        ? 'bg-blue-50 text-blue-600 font-semibold'
+                        : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900 font-medium'
+                    } ${collapsed ? 'justify-center px-0' : ''}`}
+                  >
+                    <Icon
+                      className={`w-[18px] h-[18px] shrink-0 stroke-[2] transition-colors ${
+                        active
+                          ? 'text-blue-600'
+                          : 'text-slate-500 group-hover:text-slate-700'
+                      }`}
+                    />
+
+                    {!collapsed && <span className="flex-1 truncate">{item.label}</span>}
+
+                    {!collapsed && item.badge && (
+                      <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded-full bg-blue-50 text-blue-600 border border-blue-200 leading-none">
+                        {item.badge}
+                      </span>
+                    )}
+
+                    {/* Active Bar Indicator */}
+                    {active && (
+                      <span className="absolute left-0 top-1.5 bottom-1.5 w-1 rounded-r-full bg-blue-600" />
+                    )}
+                  </Link>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Intelligence Section */}
+          <div>
+            {!collapsed && (
+              <div className="px-3 mb-1.5 text-[10px] font-semibold tracking-wider text-slate-400 uppercase select-none flex items-center justify-between">
+                <span>INTELLIGENCE</span>
+              </div>
+            )}
+            <div className="space-y-0.5">
+              {intelConfig.map((item) => {
+                const Icon = item.icon
+                const active = isActive(item.path)
+
+                return (
+                  <Link
+                    key={item.path}
+                    to={item.path}
+                    title={collapsed ? item.label : ''}
+                    className={`flex items-center gap-3 px-3 py-2 rounded-lg text-xs transition-colors group relative ${
+                      active
+                        ? 'bg-blue-50 text-blue-600 font-semibold'
+                        : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900 font-medium'
+                    } ${collapsed ? 'justify-center px-0' : ''}`}
+                  >
+                    <Icon
+                      className={`w-[18px] h-[18px] shrink-0 stroke-[2] transition-colors ${
+                        active
+                          ? 'text-blue-600'
+                          : 'text-slate-500 group-hover:text-slate-700'
+                      }`}
+                    />
+
+                    {!collapsed && <span className="flex-1 truncate">{item.label}</span>}
+
+                    {active && (
+                      <span className="absolute left-0 top-1.5 bottom-1.5 w-1 rounded-r-full bg-blue-600" />
+                    )}
+                  </Link>
+                )
+              })}
+            </div>
+          </div>
+        </nav>
+
+        {/* Bottom Section */}
+        <div className="p-2 border-t border-slate-100 space-y-1">
+          {bottomConfig.map((item) => {
+            const Icon = item.icon
+            const active = isActive(item.path)
+
+            return (
+              <Link
+                key={item.path}
+                to={item.path}
+                title={collapsed ? item.label : ''}
+                className={`flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition-colors ${
+                  collapsed ? 'justify-center px-0' : ''
+                }`}
+              >
+                <Icon className="w-[18px] h-[18px] shrink-0 stroke-[2] text-slate-500" />
+                {!collapsed && <span>{item.label}</span>}
+              </Link>
+            )
+          })}
+
+          {/* User Profile */}
+          <div
+            className={`pt-2 mt-2 border-t border-slate-100 flex items-center gap-3 px-2 ${
+              collapsed ? 'justify-center' : ''
+            }`}
+          >
+            <div className="w-8 h-8 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center text-xs font-semibold text-slate-700 shrink-0">
+              RM
+            </div>
+            {!collapsed && (
+              <div className="flex flex-col min-w-0">
+                <span className="text-xs font-semibold text-slate-900 truncate">
+                  Rajesh Mehta
+                </span>
+                <span className="text-[11px] text-slate-500 truncate">
+                  Wholesaler Admin
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+      </aside>
+
+    </>
   )
 }
