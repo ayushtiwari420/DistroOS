@@ -1,13 +1,14 @@
 import React from 'react'
 import {
   LayoutDashboard, ShoppingCart, Package, Store, CreditCard, Users, LogOut,
-  ChevronLeft, ChevronRight, User, Sparkles, Boxes
+  ChevronLeft, ChevronRight, User, Sparkles, Boxes, Receipt, BarChart2
 } from 'lucide-react'
 import { useAuth } from '../../../../context/AuthContext'
 import BrandLogo from '../../../../components/ui/BrandLogo'
 
 const navItems = [
   { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { key: 'analytics', label: 'Analytics', icon: BarChart2 },
   { key: 'orders', label: 'Orders', icon: ShoppingCart },
   { key: 'products', label: 'Products', icon: Package },
   { key: 'inventory-intelligence', label: 'Inventory Intel', icon: Boxes },
@@ -15,19 +16,11 @@ const navItems = [
   { key: 'retailers', label: 'Retailers', icon: Store },
   { key: 'salesmen', label: 'Salesmen', icon: Users },
   { key: 'credit', label: 'Credit', icon: CreditCard },
-  { key: 'account', label: 'My Account', icon: User },
+  { key: 'payments', label: 'Payments', icon: Receipt },
 ]
 
-export default function WholesalerSidebar({ active, setActive, collapsed, setCollapsed }) {
-  const { logout, user } = useAuth()
-  const initials =
-    user?.name
-      ?.split(' ')
-      .map((n) => n[0])
-      .join('')
-      .toUpperCase()
-      .slice(0, 2) || 'WS'
 
+export default function WholesalerSidebar({ active, setActive, collapsed, setCollapsed }) {
   return (
     <aside
       style={{
@@ -118,7 +111,7 @@ export default function WholesalerSidebar({ active, setActive, collapsed, setCol
                 justifyContent: collapsed ? 'center' : 'flex-start',
                 color: isActive ? 'var(--blue)' : 'var(--text-muted)',
                 background: isActive ? 'var(--blue-light)' : 'transparent',
-                borderLeft: `2px solid ${isActive ? 'var(--blue)' : 'transparent'}`,
+                borderLeft: `2.5px solid ${isActive ? 'var(--blue)' : 'transparent'}`,
                 borderRight: 'none', borderTop: 'none', borderBottom: 'none',
                 cursor: 'pointer',
                 fontSize: '0.85rem',
@@ -128,88 +121,13 @@ export default function WholesalerSidebar({ active, setActive, collapsed, setCol
                 whiteSpace: 'nowrap',
               }}
             >
-              <Icon size={16} strokeWidth={1.75} style={{ flexShrink: 0 }} />
-              {!collapsed && <span style={{ flex: 1 }}>{item.label}</span>}
+              <Icon size={18} strokeWidth={2} style={{ flexShrink: 0, opacity: isActive ? 1 : 0.85 }} />
+              {!collapsed && <span style={{ flex: 1, textAlign: 'left' }}>{item.label}</span>}
             </button>
           )
         })}
       </nav>
-
-      {/* Bottom Profile */}
-      <div style={{ paddingBottom: 12, borderTop: '1px solid var(--border)' }}>
-        <button
-          onClick={logout}
-          title={collapsed ? 'Logout' : ''}
-          style={{
-            width: '100%',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 10,
-            padding: collapsed ? '10px 0' : '9px 14px',
-            justifyContent: collapsed ? 'center' : 'flex-start',
-            color: 'var(--text-muted)',
-            background: 'transparent',
-            border: 'none',
-            cursor: 'pointer',
-            fontSize: '0.85rem',
-            fontWeight: 500,
-            fontFamily: 'Inter, sans-serif',
-          }}
-        >
-          <LogOut size={16} strokeWidth={1.75} />
-          {!collapsed && <span>Logout</span>}
-        </button>
-
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: collapsed ? 0 : 10,
-            padding: collapsed ? '10px 0' : '10px 14px 0',
-            justifyContent: collapsed ? 'center' : 'flex-start',
-            marginTop: 6,
-            borderTop: '1px solid var(--border)',
-          }}
-        >
-          <div
-            style={{
-              width: 30,
-              height: 30,
-              borderRadius: '50%',
-              background: 'var(--blue-light)',
-              border: '1.5px solid var(--blue-muted)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: '0.65rem',
-              fontWeight: 700,
-              color: 'var(--blue)',
-              flexShrink: 0,
-            }}
-          >
-            {initials}
-          </div>
-          {!collapsed && (
-            <div style={{ overflow: 'hidden' }}>
-              <div
-                style={{
-                  fontSize: '0.8rem',
-                  fontWeight: 600,
-                  color: 'var(--text)',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {user?.name}
-              </div>
-              <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>
-                Wholesaler
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
     </aside>
   )
 }
+
